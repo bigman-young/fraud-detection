@@ -9,20 +9,20 @@
 name: Build and Deploy to GKE
 
 on:
-  push:
-    branches:
-      - main
-      - master
-    paths:
-      - 'src/**'
-      - 'pom.xml'
-      - 'Dockerfile.producer'
-      - 'k8s/gke/**'
-      - '.github/workflows/deploy-to-gke.yml'
-  pull_request:
-    branches:
-      - main
-      - master
+#  push:
+#    branches:
+#      - main
+#      - master
+#    paths:
+#      - 'src/**'
+#      - 'pom.xml'
+#      - 'Dockerfile.producer'
+#      - 'k8s/gke/**'
+#      - '.github/workflows/deploy-to-gke.yml'
+#  pull_request:
+#    branches:
+#      - main
+#      - master
   workflow_dispatch:  # Allow manual trigger
 
 env:
