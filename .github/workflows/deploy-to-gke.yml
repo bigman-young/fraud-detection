@@ -93,14 +93,16 @@ jobs:
         with:
           project_id: ${{ env.PROJECT_ID }}
 
-      - name: Configure Docker for GCR
-        run: gcloud auth configure-docker gcr.io --quiet
+      - name:  Configure Docker for Artifact Registry # Configure Docker for GCR
+        # run: gcloud auth configure-docker gcr.io --quiet
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
 
       - name: Extract metadata for Docker
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: gcr.io/${{ env.PROJECT_ID }}/${{ env.IMAGE_NAME }}
+          # images: gcr.io/${{ env.PROJECT_ID }}/${{ env.IMAGE_NAME }}
+          images: us-central1-docker.pkg.dev/${{ env.PROJECT_ID }}/fraud-repo/${{ env.IMAGE_NAME }}
           tags: |
             type=sha,prefix=
             type=raw,value=latest,enable={{is_default_branch}}
@@ -161,8 +163,11 @@ jobs:
           
           # Update image to specific SHA
           kubectl set image deployment/${{ env.DEPLOYMENT_NAME }} \
-            producer=gcr.io/${{ env.PROJECT_ID }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            producer=us-central1-docker.pkg.dev/${{ env.PROJECT_ID }}/fraud-repo/${{ env.IMAGE_NAME }}:${{ github.sha }} \
             -n ${{ env.NAMESPACE }}
+          #kubectl set image deployment/${{ env.DEPLOYMENT_NAME }} \
+            #producer=gcr.io/${{ env.PROJECT_ID }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            #-n ${{ env.NAMESPACE }}
 
       - name: Wait for deployment
         run: |
