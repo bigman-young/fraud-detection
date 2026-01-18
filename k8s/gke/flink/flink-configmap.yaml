@@ -1,0 +1,111 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flink-config
+  namespace: fraud
+  labels:
+    app: flink
+data:
+  # Flink configuration file (minimal resource configuration)
+  flink-conf.yaml: |
+    # JobManager configuration (minimal)
+    jobmanager.rpc.address: flink-jobmanager
+    jobmanager.rpc.port: 6123
+    jobmanager.memory.process.size: 512m
+    jobmanager.memory.flink.size: 256m
+    jobmanager.memory.heap.size: 192m
+    jobmanager.execution.failover-strategy: region
+
+    # TaskManager configuration (minimal)
+    taskmanager.numberOfTaskSlots: 1
+    taskmanager.memory.process.size: 512m
+    taskmanager.memory.flink.size: 256m
+    taskmanager.memory.framework.heap.size: 64m
+    taskmanager.memory.task.heap.size: 128m
+    taskmanager.memory.managed.size: 64m
+    taskmanager.memory.network.min: 32m
+    taskmanager.memory.network.max: 64m
+
+    # Parallelism (minimal)
+    parallelism.default: 1
+
+    # High Availability (optional, requires ZooKeeper)
+    # high-availability: zookeeper
+    # high-availability.zookeeper.quorum: zookeeper:2181
+    # high-availability.zookeeper.path.root: /flink
+    # high-availability.cluster-id: /fraud-detection
+    # high-availability.storageDir: gs://hsbc-484505-flink-ha/
+
+    # Checkpointing (less frequent for lower overhead)
+    execution.checkpointing.interval: 120000
+    execution.checkpointing.mode: AT_LEAST_ONCE
+    execution.checkpointing.min-pause: 1000
+    execution.checkpointing.timeout: 300000
+    state.checkpoints.num-retained: 2
+
+    # State backend (use GCS for production)
+    state.backend: hashmap
+    # For production, use RocksDB with GCS:
+    # state.backend: rocksdb
+    # state.checkpoints.dir: gs://hsbc-484505-flink-checkpoints/checkpoints
+    # state.savepoints.dir: gs://hsbc-484505-flink-checkpoints/savepoints
+
+    # Web UI
+    rest.port: 8081
+    rest.address: 0.0.0.0
+    rest.bind-address: 0.0.0.0
+    web.submit.enable: true
+
+    # Metrics
+    metrics.reporter.promgateway.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+    metrics.reporter.promgateway.port: 9249
+
+    # Kubernetes specific
+    kubernetes.cluster-id: fraud-detection-cluster
+    kubernetes.namespace: fraud
+
+    # Logging
+    env.log.dir: /opt/flink/log
+    env.log.max: 5
+
+  # Log4j configuration
+  log4j-console.properties: |
+    rootLogger.level = INFO
+    rootLogger.appenderRef.console.ref = ConsoleAppender
+    rootLogger.appenderRef.rolling.ref = RollingFileAppender
+
+    appender.console.name = ConsoleAppender
+    appender.console.type = CONSOLE
+    appender.console.layout.type = PatternLayout
+    appender.console.layout.pattern = %d{yyyy-MM-dd HH:mm:ss,SSS} %-5p %-60c %x - %m%n
+
+    appender.rolling.name = RollingFileAppender
+    appender.rolling.type = RollingFile
+    appender.rolling.append = false
+    appender.rolling.fileName = ${sys:log.file}
+    appender.rolling.filePattern = ${sys:log.file}.%i
+    appender.rolling.layout.type = PatternLayout
+    appender.rolling.layout.pattern = %d{yyyy-MM-dd HH:mm:ss,SSS} %-5p %-60c %x - %m%n
+    appender.rolling.policies.type = Policies
+    appender.rolling.policies.size.type = SizeBasedTriggeringPolicy
+    appender.rolling.policies.size.size=100MB
+    appender.rolling.strategy.type = DefaultRolloverStrategy
+    appender.rolling.strategy.max = 10
+
+    # Suppress noisy loggers
+    logger.akka.name = akka
+    logger.akka.level = INFO
+    logger.kafka.name= org.apache.kafka
+    logger.kafka.level = INFO
+    logger.hadoop.name = org.apache.hadoop
+    logger.hadoop.level = INFO
+    logger.zookeeper.name = org.apache.zookeeper
+    logger.zookeeper.level = INFO
+
+    # Flink classes
+    logger.flink.name = org.apache.flink
+    logger.flink.level = INFO
+
+    # Fraud Detection Job
+    logger.fraud.name = com.hsbc.fraud
+    logger.fraud.level = INFO
