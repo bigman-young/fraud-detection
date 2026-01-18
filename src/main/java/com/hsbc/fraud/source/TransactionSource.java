@@ -2,6 +2,11 @@ package com.hsbc.fraud.source;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.google.cloud.pubsub.v1.AckReplyConsumer;
+import com.google.cloud.pubsub.v1.MessageReceiver;
+import com.google.cloud.pubsub.v1.Subscriber;
+import com.google.pubsub.v1.ProjectSubscriptionName;
+import com.google.pubsub.v1.PubsubMessage;
 import com.hsbc.fraud.model.Transaction;
 import com.hsbc.fraud.model.TransactionType;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
@@ -19,14 +24,55 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Random;
 import java.util.UUID;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Transaction data sources for the fraud detection system.
- * Provides both Kafka and demo (simulated) data sources.
+ * Provides Pub/Sub, Kafka, and demo (simulated) data sources.
  */
 public class TransactionSource {
 
     private static final Logger LOG = LoggerFactory.getLogger(TransactionSource.class);
+
+    /**
+     * Supported source types for the fraud detection system.
+     */
+    public enum SourceType {
+        PUBSUB,  // Google Cloud Pub/Sub (default)
+        KAFKA,   // Apache Kafka
+        DEMO     // Simulated data for testing
+    }
+
+    /**
+     * Creates a Pub/Sub source for transactions.
+     *
+     * @param env           Flink execution environment
+     * @param projectId     GCP project ID
+     * @param subscriptionId Pub/Sub subscription ID
+     * @return DataStream of transactions
+     */
+    public static DataStream<Transaction> createPubSubSource(
+            StreamExecutionEnvironment env,
+            String projectId,
+            String subscriptionId) {
+
+        LOG.info("Creating Pub/Sub source - Project: {}, Subscription: {}", projectId, subscriptionId);
+
+        DataStream<Transaction> transactions = env
+                .addSource(new PubSubTransactionSource(projectId, subscriptionId))
+                .name("Pub/Sub Transaction Source");
+
+        // Add watermarks for event time processing
+        return transactions
+                .assignTimestampsAndWatermarks(
+                        WatermarkStrategy.<Transaction>forBoundedOutOfOrderness(Duration.ofSeconds(5))
+                                .withTimestampAssigner((tx, timestamp) ->
+                                        tx.getTimestamp() != null ? tx.getTimestamp().toEpochMilli() : System.currentTimeMillis())
+                );
+    }
 
     /**
      * Creates a Kafka source for transactions.
@@ -187,6 +233,121 @@ public class TransactionSource {
         public void cancel() {
             LOG.info("Stopping demo transaction source");
             running = false;
+        }
+    }
+
+    /**
+     * Pub/Sub source that reads transactions from Google Cloud Pub/Sub.
+     * Uses a pull subscription to receive messages.
+     */
+    public static class PubSubTransactionSource extends RichSourceFunction<Transaction> {
+
+        private static final long serialVersionUID = 1L;
+        private static final Logger LOG = LoggerFactory.getLogger(PubSubTransactionSource.class);
+
+        private final String projectId;
+        private final String subscriptionId;
+        private volatile boolean running = true;
+        private transient Subscriber subscriber;
+        private transient BlockingQueue<Transaction> messageQueue;
+        private transient ObjectMapper objectMapper;
+
+        public PubSubTransactionSource(String projectId, String subscriptionId) {
+            this.projectId = projectId;
+            this.subscriptionId = subscriptionId;
+        }
+
+        @Override
+        public void open(org.apache.flink.configuration.Configuration parameters) throws Exception {
+            super.open(parameters);
+            
+            LOG.info("Opening Pub/Sub source - Project: {}, Subscription: {}", projectId, subscriptionId);
+            
+            // Initialize object mapper
+            objectMapper = new ObjectMapper();
+            objectMapper.registerModule(new JavaTimeModule());
+
+            // Initialize message queue
+            messageQueue = new LinkedBlockingQueue<>(10000);
+
+            // Create subscription name
+            ProjectSubscriptionName subscriptionName = ProjectSubscriptionName.of(projectId, subscriptionId);
+
+            // Create message receiver
+            MessageReceiver receiver = (PubsubMessage message, AckReplyConsumer consumer) -> {
+                try {
+                    String json = message.getData().toStringUtf8();
+                    Transaction transaction = objectMapper.readValue(json, Transaction.class);
+                    
+                    if (transaction != null) {
+                        // Try to add to queue, if full, drop the oldest
+                        if (!messageQueue.offer(transaction)) {
+                            messageQueue.poll(); // Remove oldest
+                            messageQueue.offer(transaction);
+                            LOG.warn("Message queue full, dropped oldest message");
+                        }
+                    }
+                    
+                    // Acknowledge the message
+                    consumer.ack();
+                    
+                } catch (Exception e) {
+                    LOG.error("Failed to process Pub/Sub message: {}", e.getMessage(), e);
+                    // Negative acknowledgment - message will be redelivered
+                    consumer.nack();
+                }
+            };
+
+            // Build and start subscriber
+            subscriber = Subscriber.newBuilder(subscriptionName, receiver)
+                    .build();
+            
+            subscriber.startAsync().awaitRunning();
+            LOG.info("Pub/Sub subscriber started successfully");
+        }
+
+        @Override
+        public void run(SourceContext<Transaction> ctx) throws Exception {
+            LOG.info("Starting Pub/Sub transaction source");
+            
+            while (running) {
+                try {
+                    // Poll from queue with timeout
+                    Transaction transaction = messageQueue.poll(100, TimeUnit.MILLISECONDS);
+                    
+                    if (transaction != null) {
+                        synchronized (ctx.getCheckpointLock()) {
+                            ctx.collect(transaction);
+                        }
+                    }
+                    
+                } catch (InterruptedException e) {
+                    LOG.info("Pub/Sub source interrupted");
+                    Thread.currentThread().interrupt();
+                    running = false;
+                }
+            }
+        }
+
+        @Override
+        public void cancel() {
+            LOG.info("Cancelling Pub/Sub transaction source");
+            running = false;
+            
+            if (subscriber != null) {
+                try {
+                    subscriber.stopAsync().awaitTerminated(30, TimeUnit.SECONDS);
+                    LOG.info("Pub/Sub subscriber stopped");
+                } catch (TimeoutException e) {
+                    LOG.warn("Timeout while stopping Pub/Sub subscriber", e);
+                }
+            }
+        }
+
+        @Override
+        public void close() throws Exception {
+            cancel();
+            super.close();
         }
     }
 }
