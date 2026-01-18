@@ -31,7 +31,7 @@ env:
   GKE_REGION: ${{ secrets.GKE_REGION }}
   IMAGE_NAME: transaction-producer
   DEPLOYMENT_NAME: transaction-producer
-  NAMESPACE: fraud-detection
+  NAMESPACE: fraud
 
 jobs:
   # Job 1: Build and Test
