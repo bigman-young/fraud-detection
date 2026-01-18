@@ -1,0 +1,41 @@
+# Dockerfile for Fraud Detection Flink Job
+# Uses OpenJDK 17 with the fat JAR
+
+FROM eclipse-temurin:17-jre-alpine
+
+LABEL maintainer="HSBC Fraud Detection Team"
+LABEL description="Real-Time Fraud Detection Flink Job"
+
+# Install necessary utilities
+RUN apk add --no-cache bash curl
+
+# Set working directory
+WORKDIR /app
+
+# Copy the fat JAR
+COPY target/fraud-detection-system-1.0.0.jar /app/fraud-detection-job.jar
+
+# Create non-root user
+RUN addgroup -g 1000 flink && \
+    adduser -u 1000 -G flink -s /bin/sh -D flink && \
+    chown -R flink:flink /app
+
+USER flink
+
+# Environment variables with defaults
+ENV SOURCE_TYPE=PUBSUB \
+    GOOGLE_CLOUD_PROJECT=hsbc-484505 \
+    PUBSUB_SUBSCRIPTION=transactions-sub \
+    PUBSUB_ALERT_TOPIC=fraud-alerts \
+    KAFKA_BOOTSTRAP_SERVERS=10.113.192.45:9092 \
+    INPUT_TOPIC=transactions \
+    ALERT_TOPIC=fraud-alerts \
+    ALERT_THRESHOLD=0.4 \
+    PARALLELISM=4
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD ps aux | grep -v grep | grep java || exit 1
+
+# Run the Flink job
+ENTRYPOINT ["java", "-Xmx1536m", "-Xms512m", "-jar", "/app/fraud-detection-job.jar"]
