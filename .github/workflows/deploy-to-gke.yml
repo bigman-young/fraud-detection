@@ -96,27 +96,33 @@ jobs:
       - name:  Configure Docker for Artifact Registry # Configure Docker for GCR
         # run: gcloud auth configure-docker gcr.io --quiet
         run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
-
-      - name: Extract metadata for Docker
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          # images: gcr.io/${{ env.PROJECT_ID }}/${{ env.IMAGE_NAME }}
-          images: us-central1-docker.pkg.dev/${{ env.PROJECT_ID }}/fraud-repo/${{ env.IMAGE_NAME }}
-          tags: |
-            type=sha,prefix=
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=ref,event=branch
-            type=ref,event=pr
-
+        
       - name: Build and Push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile.producer
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+        run: |
+          IMAGE=us-central1-docker.pkg.dev/${PROJECT_ID}/fraud-repo/${IMAGE_NAME}:${GITHUB_SHA}
+          docker build -f Dockerfile.producer -t $IMAGE .
+          docker push $IMAGE
+    
+#      - name: Extract metadata for Docker
+#        id: meta
+#        uses: docker/metadata-action@v5
+#        with:
+#          # images: gcr.io/${{ env.PROJECT_ID }}/${{ env.IMAGE_NAME }}
+#          images: us-central1-docker.pkg.dev/${{ env.PROJECT_ID }}/fraud-repo/${{ env.IMAGE_NAME }}
+#          tags: |
+#            type=sha,prefix=
+#            type=raw,value=latest,enable={{is_default_branch}}
+#            type=ref,event=branch
+#            type=ref,event=pr
+#
+#      - name: Build and Push Docker image
+#        uses: docker/build-push-action@v5
+#        with:
+#          context: .
+#          file: ./Dockerfile.producer
+#          push: true
+#          tags: ${{ steps.meta.outputs.tags }}
+#          labels: ${{ steps.meta.outputs.labels }}
 
   # Job 3: Deploy to GKE
   deploy:
