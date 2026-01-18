@@ -1,0 +1,35 @@
+# Custom Flink image with Fraud Detection dependencies
+# This image is used for both JobManager and TaskManager in cluster mode
+FROM flink:1.18.1-java17
+
+LABEL maintainer="HSBC Fraud Detection Team"
+LABEL description="Flink cluster image with Fraud Detection dependencies"
+
+# Install utilities
+USER root
+RUN apt-get update && apt-get install -y \
+    curl \
+    netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create directory for job JARs
+RUN mkdir -p /opt/flink/usrlib && \
+    chown -R flink:flink /opt/flink/usrlib
+
+# Copy the fraud detection JAR
+COPY --chown=flink:flink target/fraud-detection-system-1.0.0.jar /opt/flink/usrlib/
+
+# Copy additional connector JARs if needed
+# Pub/Sub connector and dependencies are included in the shaded JAR
+
+# Environment variables (minimal memory settings)
+ENV SOURCE_TYPE=PUBSUB \
+    GOOGLE_CLOUD_PROJECT=hsbc-484505 \
+    PUBSUB_SUBSCRIPTION=transactions-sub \
+    FLINK_TM_HEAP_SIZE=256m \
+    FLINK_JM_HEAP_SIZE=256m
+
+USER flink
+
+# The entrypoint is inherited from the base image
+# It will start either jobmanager or taskmanager based on the command
