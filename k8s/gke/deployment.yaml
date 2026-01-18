@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transaction-producer
+  namespace: fraud
+  labels:
+    app: transaction-producer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: transaction-producer
+  template:
+    metadata:
+      labels:
+        app: transaction-producer
+    spec:
+      serviceAccountName: transaction-producer-sa
+      containers:
+        - name: producer
+          image: gcr.io/hsbc-484505/transaction-producer:latest
+          imagePullPolicy: Always
+          env:
+            # GCP Project ID - REQUIRED
+            - name: GOOGLE_CLOUD_PROJECT
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            # Or set explicitly:
+            # - name: GOOGLE_CLOUD_PROJECT
+            #   value: "your-project-id"
+          envFrom:
+            - configMapRef:
+                name: producer-config
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          # Liveness probe
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "ps aux | grep -v grep | grep java"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+      # Optional: Node selector for specific node pools
+      # nodeSelector:
+      #   cloud.google.com/gke-nodepool: producer-pool
+      
+      # Restart policy
+      restartPolicy: Always
+---
+# Optional: HorizontalPodAutoscaler for scaling based on load
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: transaction-producer-hpa
+  namespace: fraud
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: transaction-producer
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
