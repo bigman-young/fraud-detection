@@ -78,7 +78,10 @@ spec:
               value: |
                 jobmanager.rpc.address: flink-jobmanager
                 jobmanager.rpc.port: 6123
-                jobmanager.memory.process.size: 512m
+                jobmanager.memory.process.size: 1024m
+                jobmanager.memory.jvm-overhead.min: 64m
+                jobmanager.memory.jvm-overhead.max: 128m
+                jobmanager.memory.jvm-metaspace.size: 128m
             - name: GOOGLE_CLOUD_PROJECT
               value: "hsbc-484505"
           volumeMounts:
@@ -92,11 +95,11 @@ spec:
               mountPath: /opt/flink/usrlib
           resources:
             requests:
-              memory: "256Mi"
-              cpu: "100m"
+              memory: "768Mi"
+              cpu: "200m"
             limits:
-              memory: "512Mi"
-              cpu: "500m"
+              memory: "1Gi"
+              cpu: "1000m"
           livenessProbe:
             tcpSocket:
               port: 6123
