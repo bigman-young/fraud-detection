@@ -1,5 +1,5 @@
 # GitHub Actions workflow for deploying Flink Fraud Detection Job to GKE
-# 
+#
 # This workflow builds and deploys the Flink-based fraud detection job
 # that reads from Google Cloud Pub/Sub (default), Kafka, or demo source.
 #
@@ -29,12 +29,12 @@ on:
   #   branches:
   #     - main
   #     - master
-  workflow_dispatch:  # Allow manual trigger
+  workflow_dispatch: # Allow manual trigger
     inputs:
       source_type:
-        description: 'Data source type (PUBSUB, KAFKA, DEMO)'
+        description: "Data source type (PUBSUB, KAFKA, DEMO)"
         required: false
-        default: 'PUBSUB'
+        default: "PUBSUB"
         type: choice
         options:
           - PUBSUB
@@ -56,7 +56,7 @@ jobs:
   build:
     name: Build and Test
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -64,8 +64,8 @@ jobs:
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
-          distribution: 'temurin'
+          java-version: "17"
+          distribution: "temurin"
           cache: maven
 
       - name: Build with Maven
@@ -87,7 +87,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    
+
     outputs:
       image_tag: ${{ steps.image.outputs.tag }}
 
@@ -133,7 +133,7 @@ jobs:
     needs: docker
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -147,7 +147,7 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: ${{ env.PROJECT_ID }}
-          install_components: 'gke-gcloud-auth-plugin'
+          install_components: "gke-gcloud-auth-plugin"
 
       - name: Get GKE credentials
         run: |
@@ -174,43 +174,35 @@ jobs:
           # Update image to use Artifact Registry with specific SHA
           sed -i "s|gcr.io/hsbc-484505/fraud-detection-job:latest|${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}|g" k8s/gke/flink-job-deployment.yaml
 
-      - name: Setup GCP Service Account for Workload Identity
+      - name: Verify GCP Service Account for Workload Identity
         run: |
-          # Check if service account exists
+          # NOTE: Service account should be pre-created manually
+          # Run once: gcloud iam service-accounts create fraud-detection --display-name="Fraud Detection Service Account"
+
           SA_NAME="fraud-detection"
           SA_EMAIL="${SA_NAME}@${{ env.PROJECT_ID }}.iam.gserviceaccount.com"
-          
-          if ! gcloud iam service-accounts describe ${SA_EMAIL} --project ${{ env.PROJECT_ID }} &>/dev/null; then
-            echo "Creating GCP service account: ${SA_EMAIL}"
-            gcloud iam service-accounts create ${SA_NAME} \
-              --display-name="Fraud Detection Service Account" \
-              --project ${{ env.PROJECT_ID }}
+
+          echo "Verifying service account exists: ${SA_EMAIL}"
+          if gcloud iam service-accounts describe ${SA_EMAIL} --project ${{ env.PROJECT_ID }} &>/dev/null; then
+            echo "✓ Service account ${SA_EMAIL} exists"
+          else
+            echo "✗ Service account ${SA_EMAIL} not found!"
+            echo ""
+            echo "Please create it manually with:"
+            echo "  gcloud iam service-accounts create fraud-detection --display-name='Fraud Detection Service Account' --project ${{ env.PROJECT_ID }}"
+            echo "  gcloud projects add-iam-policy-binding ${{ env.PROJECT_ID }} --member='serviceAccount:${SA_EMAIL}' --role='roles/pubsub.subscriber'"
+            exit 1
           fi
-          
-          # Grant Pub/Sub Subscriber role (for reading transactions)
-          echo "Granting Pub/Sub Subscriber role..."
-          gcloud projects add-iam-policy-binding ${{ env.PROJECT_ID }} \
-            --member="serviceAccount:${SA_EMAIL}" \
-            --role="roles/pubsub.subscriber" \
-            --quiet || true
-          
-          # Bind Workload Identity
-          echo "Binding Workload Identity..."
-          gcloud iam service-accounts add-iam-policy-binding ${SA_EMAIL} \
-            --role="roles/iam.workloadIdentityUser" \
-            --member="serviceAccount:${{ env.PROJECT_ID }}.svc.id.goog[${{ env.NAMESPACE }}/fraud-detection-sa]" \
-            --project ${{ env.PROJECT_ID }} \
-            --quiet || true
 
       - name: Deploy to GKE
         run: |
           # Create namespace if not exists
           kubectl apply -f k8s/gke/namespace.yaml
-          
+
           # Apply Flink Job configurations
           kubectl apply -f k8s/gke/flink-job-configmap.yaml
           kubectl apply -f k8s/gke/flink-job-deployment.yaml
-          
+
           # Force rollout to ensure new image is used
           kubectl rollout restart deployment/${{ env.DEPLOYMENT_NAME }} -n ${{ env.NAMESPACE }}
 
