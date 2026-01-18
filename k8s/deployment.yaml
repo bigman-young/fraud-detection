@@ -1,0 +1,128 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fraud-detection-jobmanager
+  namespace: fraud-detection
+  labels:
+    app: fraud-detection-system
+    component: jobmanager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fraud-detection-system
+      component: jobmanager
+  template:
+    metadata:
+      labels:
+        app: fraud-detection-system
+        component: jobmanager
+    spec:
+      containers:
+        - name: jobmanager
+          image: fraud-detection-system:1.0.0
+          imagePullPolicy: IfNotPresent
+          args: ["jobmanager"]
+          ports:
+            - containerPort: 8081
+              name: web-ui
+            - containerPort: 6123
+              name: rpc
+            - containerPort: 6124
+              name: blob
+          envFrom:
+            - configMapRef:
+                name: fraud-detection-config
+          env:
+            - name: FLINK_PROPERTIES
+              value: |
+                jobmanager.rpc.address: fraud-detection-jobmanager
+                jobmanager.rpc.port: 6123
+                jobmanager.memory.process.size: 1600m
+                taskmanager.memory.process.size: 1728m
+                taskmanager.numberOfTaskSlots: 2
+                parallelism.default: 4
+                state.backend: rocksdb
+                state.checkpoints.dir: file:///tmp/flink-checkpoints
+                state.savepoints.dir: file:///tmp/flink-savepoints
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /overview
+              port: 8081
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /overview
+              port: 8081
+            initialDelaySeconds: 10
+            periodSeconds: 5
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fraud-detection-taskmanager
+  namespace: fraud-detection
+  labels:
+    app: fraud-detection-system
+    component: taskmanager
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: fraud-detection-system
+      component: taskmanager
+  template:
+    metadata:
+      labels:
+        app: fraud-detection-system
+        component: taskmanager
+    spec:
+      containers:
+        - name: taskmanager
+          image: fraud-detection-system:1.0.0
+          imagePullPolicy: IfNotPresent
+          args: ["taskmanager"]
+          ports:
+            - containerPort: 6122
+              name: rpc
+            - containerPort: 6125
+              name: query-state
+          envFrom:
+            - configMapRef:
+                name: fraud-detection-config
+          env:
+            - name: FLINK_PROPERTIES
+              value: |
+                jobmanager.rpc.address: fraud-detection-jobmanager
+                jobmanager.rpc.port: 6123
+                taskmanager.memory.process.size: 1728m
+                taskmanager.numberOfTaskSlots: 2
+                parallelism.default: 4
+                state.backend: rocksdb
+                state.checkpoints.dir: file:///tmp/flink-checkpoints
+          resources:
+            requests:
+              memory: "1.5Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+          livenessProbe:
+            tcpSocket:
+              port: 6122
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: 6122
+            initialDelaySeconds: 15
+            periodSeconds: 5
+

@@ -1,0 +1,180 @@
+version: '3.8'
+
+services:
+  # Zookeeper for Kafka
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    hostname: zookeeper
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Kafka Broker
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    hostname: kafka
+    container_name: kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Kafka Topic Initialization
+  kafka-init:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command: |
+      "
+      echo 'Creating Kafka topics...'
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:9092 --partitions 4 --replication-factor 1 --topic transactions
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:9092 --partitions 4 --replication-factor 1 --topic fraud-alerts
+      echo 'Topics created successfully!'
+      kafka-topics --list --bootstrap-server kafka:9092
+      "
+
+  # Flink JobManager
+  jobmanager:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: fraud-detection-system:1.0.0
+    hostname: jobmanager
+    container_name: flink-jobmanager
+    ports:
+      - "8081:8081"
+    command: jobmanager
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - INPUT_TOPIC=transactions
+      - ALERT_TOPIC=fraud-alerts
+      - USE_KAFKA=true
+      - ALERT_THRESHOLD=0.4
+      - PARALLELISM=4
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        jobmanager.rpc.port: 6123
+        jobmanager.memory.process.size: 1600m
+        taskmanager.memory.process.size: 1728m
+        taskmanager.numberOfTaskSlots: 2
+        parallelism.default: 4
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/overview"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Flink TaskManager
+  taskmanager:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: fraud-detection-system:1.0.0
+    hostname: taskmanager
+    container_name: flink-taskmanager
+    depends_on:
+      jobmanager:
+        condition: service_healthy
+    command: taskmanager
+    environment:
+      - JOBMANAGER_HOST=jobmanager
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        taskmanager.memory.process.size: 1728m
+        taskmanager.numberOfTaskSlots: 2
+    deploy:
+      replicas: 2
+
+  # Job Submission Container
+  job-submission:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: fraud-detection-system:1.0.0
+    container_name: flink-job-submission
+    depends_on:
+      jobmanager:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - INPUT_TOPIC=transactions
+      - ALERT_TOPIC=fraud-alerts
+      - USE_KAFKA=true
+      - ALERT_THRESHOLD=0.4
+    entrypoint: ["/bin/bash", "-c"]
+    command: |
+      "
+      echo 'Waiting for services to be ready...'
+      sleep 10
+      echo 'Submitting Flink job...'
+      /opt/flink/bin/flink run -d \
+        -m jobmanager:8081 \
+        -c com.hsbc.fraud.FraudDetectionJob \
+        /opt/flink/job/fraud-detection-system-1.0.0.jar
+      echo 'Job submitted successfully!'
+      "
+
+  # Transaction Generator (for testing)
+  transaction-generator:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: transaction-generator
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    entrypoint: ["/bin/bash", "-c"]
+    command: |
+      "
+      echo 'Starting transaction generator...'
+      while true; do
+        # Generate random transaction
+        TX_ID=$$(cat /dev/urandom | tr -dc 'A-Z0-9' | fold -w 8 | head -n 1)
+        ACCOUNTS=(\"ACC-001\" \"ACC-002\" \"ACC-003\" \"SUSP-001\" \"BLACK-001\")
+        ACCOUNT=$${ACCOUNTS[$$RANDOM % $${#ACCOUNTS[@]}]}
+        AMOUNT=$$(($$RANDOM % 100000 + 100))
+        COUNTRIES=(\"US\" \"UK\" \"DE\" \"XX\" \"ZZ\")
+        COUNTRY=$${COUNTRIES[$$RANDOM % $${#COUNTRIES[@]}]}
+        TIMESTAMP=$$(date -u +\"%Y-%m-%dT%H:%M:%S.000Z\")
+        
+        MSG='{\"transaction_id\":\"TX-'$$TX_ID'\",\"account_id\":\"'$$ACCOUNT'\",\"target_account_id\":\"ACC-999\",\"amount\":'$$AMOUNT',\"currency\":\"USD\",\"transaction_type\":\"TRANSFER\",\"timestamp\":\"'$$TIMESTAMP'\",\"country_code\":\"'$$COUNTRY'\",\"channel\":\"ONLINE\"}'
+        
+        echo $$MSG | kafka-console-producer --bootstrap-server kafka:9092 --topic transactions
+        echo \"Sent: $$MSG\"
+        sleep $$(($$RANDOM % 3 + 1))
+      done
+      "
+    profiles:
+      - testing
+
+networks:
+  default:
+    name: fraud-detection-network
+

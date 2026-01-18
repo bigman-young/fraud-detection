@@ -1,0 +1,56 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fraud-detection-job-submission
+  namespace: fraud-detection
+  labels:
+    app: fraud-detection-system
+spec:
+  template:
+    metadata:
+      labels:
+        app: fraud-detection-system
+        component: job-submission
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: job-submitter
+          image: fraud-detection-system:1.0.0
+          command:
+            - /bin/bash
+            - -c
+            - |
+              echo "Waiting for JobManager to be ready..."
+              sleep 30
+              
+              echo "Submitting Flink job..."
+              /opt/flink/bin/flink run \
+                --detached \
+                --jobmanager fraud-detection-jobmanager:8081 \
+                --class com.hsbc.fraud.FraudDetectionJob \
+                /opt/flink/job/fraud-detection-system-1.0.0.jar
+              
+              echo "Job submitted successfully!"
+          envFrom:
+            - configMapRef:
+                name: fraud-detection-config
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "200m"
+      initContainers:
+        - name: wait-for-jobmanager
+          image: busybox:1.35
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z fraud-detection-jobmanager 8081; do
+                echo "Waiting for JobManager..."
+                sleep 5
+              done
+              echo "JobManager is ready!"
+
