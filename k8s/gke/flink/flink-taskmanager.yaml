@@ -32,8 +32,11 @@ spec:
             - name: FLINK_PROPERTIES
               value: |
                 jobmanager.rpc.address: flink-jobmanager
-                taskmanager.numberOfTaskSlots: 1
-                taskmanager.memory.process.size: 512m
+                taskmanager.numberOfTaskSlots: 2
+                taskmanager.memory.process.size: 2048m
+                taskmanager.memory.jvm-overhead.min: 128m
+                taskmanager.memory.jvm-overhead.max: 256m
+                taskmanager.memory.jvm-metaspace.size: 128m
             - name: GOOGLE_CLOUD_PROJECT
               value: "hsbc-484505"
           volumeMounts:
@@ -47,11 +50,11 @@ spec:
               mountPath: /opt/flink/usrlib
           resources:
             requests:
-              memory: "256Mi"
-              cpu: "100m"
-            limits:
-              memory: "512Mi"
+              memory: "1536Mi"
               cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1500m"
           livenessProbe:
             tcpSocket:
               port: 6122
