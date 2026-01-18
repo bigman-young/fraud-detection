@@ -28,11 +28,11 @@ public class FraudDetectionJob {
         LOG.info("Starting Fraud Detection Job...");
 
         // Get configuration from environment variables or use defaults
-        String kafkaBootstrapServers = getEnvOrDefault("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092");
+        String kafkaBootstrapServers = getEnvOrDefault("KAFKA_BOOTSTRAP_SERVERS", "10.113.192.45:9092");
         String inputTopic = getEnvOrDefault("INPUT_TOPIC", "transactions");
         String alertTopic = getEnvOrDefault("ALERT_TOPIC", "fraud-alerts");
         double alertThreshold = Double.parseDouble(getEnvOrDefault("ALERT_THRESHOLD", "0.4"));
-        boolean useKafka = Boolean.parseBoolean(getEnvOrDefault("USE_KAFKA", "false"));
+        boolean useKafka = Boolean.parseBoolean(getEnvOrDefault("USE_KAFKA", "true"));
 
         // Create execution environment
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
