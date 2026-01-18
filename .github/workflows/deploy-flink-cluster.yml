@@ -16,7 +16,7 @@
 name: Deploy Flink Cluster to GKE
 
 on:
-  push:
+  #push:
     # branches:
     #   - main
     #   - master
