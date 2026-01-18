@@ -1,0 +1,118 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flink-taskmanager
+  namespace: fraud
+  labels:
+    app: flink
+    component: taskmanager
+spec:
+  replicas: 1  # Minimal: 1 TaskManager
+  selector:
+    matchLabels:
+      app: flink
+      component: taskmanager
+  template:
+    metadata:
+      labels:
+        app: flink
+        component: taskmanager
+    spec:
+      serviceAccountName: flink-sa
+      containers:
+        - name: taskmanager
+          image: flink:1.18.1-java17
+          args: ["taskmanager"]
+          ports:
+            - containerPort: 6122
+              name: rpc
+            - containerPort: 6125
+              name: query-state
+          env:
+            - name: FLINK_PROPERTIES
+              value: |
+                jobmanager.rpc.address: flink-jobmanager
+                taskmanager.numberOfTaskSlots: 1
+                taskmanager.memory.process.size: 512m
+            - name: GOOGLE_CLOUD_PROJECT
+              value: "hsbc-484505"
+          volumeMounts:
+            - name: flink-config-volume
+              mountPath: /opt/flink/conf/flink-conf.yaml
+              subPath: flink-conf.yaml
+            - name: flink-config-volume
+              mountPath: /opt/flink/conf/log4j-console.properties
+              subPath: log4j-console.properties
+            - name: job-artifacts
+              mountPath: /opt/flink/usrlib
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            tcpSocket:
+              port: 6122
+            initialDelaySeconds: 30
+            periodSeconds: 60
+          readinessProbe:
+            tcpSocket:
+              port: 6122
+            initialDelaySeconds: 30
+            periodSeconds: 10
+      volumes:
+        - name: flink-config-volume
+          configMap:
+            name: flink-config
+        - name: job-artifacts
+          emptyDir: {}
+      # Init container to download job JAR
+      initContainers:
+        - name: download-job-jar
+          image: gcr.io/google.com/cloudsdktool/google-cloud-cli:alpine
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Job JAR will be submitted via REST API"
+              # For custom JAR with dependencies:
+              # gsutil cp gs://hsbc-484505-flink-jobs/fraud-detection-system-1.0.0.jar /opt/flink/usrlib/
+          volumeMounts:
+            - name: job-artifacts
+              mountPath: /opt/flink/usrlib
+---
+# HorizontalPodAutoscaler for TaskManagers (minimal config)
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: flink-taskmanager-hpa
+  namespace: fraud
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: flink-taskmanager
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 80
+---
+# PodDisruptionBudget for TaskManagers (allow all to be unavailable for minimal setup)
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: flink-taskmanager-pdb
+  namespace: fraud
+spec:
+  minAvailable: 0
+  selector:
+    matchLabels:
+      app: flink
+      component: taskmanager
