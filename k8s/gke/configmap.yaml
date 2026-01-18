@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: producer-config
+  namespace: fraud
+  labels:
+    app: transaction-producer
+data:
+  # Pub/Sub configuration
+  PUBSUB_TOPIC: "transactions"
+  
+  # Producer configuration
+  TPS: "10"
+  FRAUD_RATE: "15"
