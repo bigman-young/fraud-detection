@@ -1,0 +1,143 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: flink-jobmanager
+  namespace: fraud
+  labels:
+    app: flink
+    component: jobmanager
+spec:
+  type: ClusterIP
+  ports:
+    - name: rpc
+      port: 6123
+      targetPort: 6123
+    - name: blob-server
+      port: 6124
+      targetPort: 6124
+    - name: webui
+      port: 8081
+      targetPort: 8081
+  selector:
+    app: flink
+    component: jobmanager
+---
+# Service for external access to Flink Web UI (optional)
+apiVersion: v1
+kind: Service
+metadata:
+  name: flink-jobmanager-webui
+  namespace: fraud
+  labels:
+    app: flink
+    component: jobmanager
+spec:
+  type: LoadBalancer  # Change to ClusterIP and use Ingress for production
+  ports:
+    - name: webui
+      port: 8081
+      targetPort: 8081
+  selector:
+    app: flink
+    component: jobmanager
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flink-jobmanager
+  namespace: fraud
+  labels:
+    app: flink
+    component: jobmanager
+spec:
+  replicas: 1  # For HA, use 2+ replicas with ZooKeeper
+  selector:
+    matchLabels:
+      app: flink
+      component: jobmanager
+  template:
+    metadata:
+      labels:
+        app: flink
+        component: jobmanager
+    spec:
+      serviceAccountName: flink-sa
+      containers:
+        - name: jobmanager
+          image: flink:1.18.1-java17
+          args: ["jobmanager"]
+          ports:
+            - containerPort: 6123
+              name: rpc
+            - containerPort: 6124
+              name: blob-server
+            - containerPort: 8081
+              name: webui
+          env:
+            - name: FLINK_PROPERTIES
+              value: |
+                jobmanager.rpc.address: flink-jobmanager
+                jobmanager.rpc.port: 6123
+                jobmanager.memory.process.size: 512m
+            - name: GOOGLE_CLOUD_PROJECT
+              value: "hsbc-484505"
+          volumeMounts:
+            - name: flink-config-volume
+              mountPath: /opt/flink/conf/flink-conf.yaml
+              subPath: flink-conf.yaml
+            - name: flink-config-volume
+              mountPath: /opt/flink/conf/log4j-console.properties
+              subPath: log4j-console.properties
+            - name: job-artifacts
+              mountPath: /opt/flink/usrlib
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            tcpSocket:
+              port: 6123
+            initialDelaySeconds: 30
+            periodSeconds: 60
+          readinessProbe:
+            httpGet:
+              path: /overview
+              port: 8081
+            initialDelaySeconds: 30
+            periodSeconds: 10
+      volumes:
+        - name: flink-config-volume
+          configMap:
+            name: flink-config
+        - name: job-artifacts
+          emptyDir: {}
+      # Init container to download job JAR (optional)
+      initContainers:
+        - name: download-job-jar
+          image: gcr.io/google.com/cloudsdktool/google-cloud-cli:alpine
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Job JAR will be submitted via REST API or Flink CLI"
+              echo "Placeholder for optional JAR download from GCS"
+              # gsutil cp gs://hsbc-484505-flink-jobs/fraud-detection-system-1.0.0.jar /opt/flink/usrlib/
+          volumeMounts:
+            - name: job-artifacts
+              mountPath: /opt/flink/usrlib
+---
+# PodDisruptionBudget for JobManager (minimal: allow unavailability)
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: flink-jobmanager-pdb
+  namespace: fraud
+spec:
+  minAvailable: 0
+  selector:
+    matchLabels:
+      app: flink
+      component: jobmanager
