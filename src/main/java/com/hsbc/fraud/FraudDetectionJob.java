@@ -6,6 +6,7 @@ import com.hsbc.fraud.processor.FraudDetectionProcessor;
 import com.hsbc.fraud.processor.VelocityCheckProcessor;
 import com.hsbc.fraud.sink.AlertSink;
 import com.hsbc.fraud.source.TransactionSource;
+import com.hsbc.fraud.source.TransactionSource.SourceType;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
@@ -19,20 +20,40 @@ import java.time.Duration;
 /**
  * Main Flink job for real-time fraud detection.
  * This job processes transaction streams and generates fraud alerts in real-time.
+ * 
+ * Supported data sources (configured via SOURCE_TYPE environment variable):
+ * - PUBSUB: Google Cloud Pub/Sub (default)
+ * - KAFKA: Apache Kafka
+ * - DEMO: Simulated data for testing
  */
 public class FraudDetectionJob {
 
     private static final Logger LOG = LoggerFactory.getLogger(FraudDetectionJob.class);
 
+    // Default configuration values
+    private static final String DEFAULT_SOURCE_TYPE = "PUBSUB";
+    private static final String DEFAULT_GCP_PROJECT = "hsbc-484505";
+    private static final String DEFAULT_PUBSUB_SUBSCRIPTION = "transactions-sub";
+    private static final String DEFAULT_KAFKA_SERVERS = "10.113.192.45:9092";
+    private static final String DEFAULT_INPUT_TOPIC = "transactions";
+    private static final String DEFAULT_ALERT_TOPIC = "fraud-alerts";
+    private static final String DEFAULT_ALERT_THRESHOLD = "0.4";
+
     public static void main(String[] args) throws Exception {
         LOG.info("Starting Fraud Detection Job...");
 
-        // Get configuration from environment variables or use defaults
-        String kafkaBootstrapServers = getEnvOrDefault("KAFKA_BOOTSTRAP_SERVERS", "10.113.192.45:9092");
-        String inputTopic = getEnvOrDefault("INPUT_TOPIC", "transactions");
-        String alertTopic = getEnvOrDefault("ALERT_TOPIC", "fraud-alerts");
-        double alertThreshold = Double.parseDouble(getEnvOrDefault("ALERT_THRESHOLD", "0.4"));
-        boolean useKafka = Boolean.parseBoolean(getEnvOrDefault("USE_KAFKA", "true"));
+        // Get source type configuration
+        String sourceTypeStr = getEnvOrDefault("SOURCE_TYPE", DEFAULT_SOURCE_TYPE);
+        SourceType sourceType;
+        try {
+            sourceType = SourceType.valueOf(sourceTypeStr.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            LOG.warn("Invalid SOURCE_TYPE '{}', defaulting to PUBSUB", sourceTypeStr);
+            sourceType = SourceType.PUBSUB;
+        }
+
+        // Get common configuration
+        double alertThreshold = Double.parseDouble(getEnvOrDefault("ALERT_THRESHOLD", DEFAULT_ALERT_THRESHOLD));
 
         // Create execution environment
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
@@ -40,13 +61,30 @@ public class FraudDetectionJob {
         // Configure environment
         configureEnvironment(env);
 
-        // Build and execute the pipeline
+        // Build and execute the pipeline based on source type
         FraudDetectionJob job = new FraudDetectionJob();
-        
-        if (useKafka) {
-            job.buildKafkaPipeline(env, kafkaBootstrapServers, inputTopic, alertTopic, alertThreshold);
-        } else {
-            job.buildDemoPipeline(env, alertThreshold);
+
+        LOG.info("Using source type: {}", sourceType);
+
+        switch (sourceType) {
+            case PUBSUB:
+                String gcpProject = getEnvOrDefault("GOOGLE_CLOUD_PROJECT", DEFAULT_GCP_PROJECT);
+                String subscription = getEnvOrDefault("PUBSUB_SUBSCRIPTION", DEFAULT_PUBSUB_SUBSCRIPTION);
+                String alertTopic = getEnvOrDefault("PUBSUB_ALERT_TOPIC", "fraud-alerts");
+                job.buildPubSubPipeline(env, gcpProject, subscription, alertTopic, alertThreshold);
+                break;
+
+            case KAFKA:
+                String kafkaServers = getEnvOrDefault("KAFKA_BOOTSTRAP_SERVERS", DEFAULT_KAFKA_SERVERS);
+                String inputTopic = getEnvOrDefault("INPUT_TOPIC", DEFAULT_INPUT_TOPIC);
+                String kafkaAlertTopic = getEnvOrDefault("ALERT_TOPIC", DEFAULT_ALERT_TOPIC);
+                job.buildKafkaPipeline(env, kafkaServers, inputTopic, kafkaAlertTopic, alertThreshold);
+                break;
+
+            case DEMO:
+            default:
+                job.buildDemoPipeline(env, alertThreshold);
+                break;
         }
 
         // Execute
@@ -65,6 +103,38 @@ public class FraudDetectionJob {
         env.setParallelism(parallelism);
 
         LOG.info("Environment configured with parallelism: {}", parallelism);
+    }
+
+    /**
+     * Builds the fraud detection pipeline with Google Cloud Pub/Sub source.
+     * This is the default pipeline configuration.
+     */
+    public void buildPubSubPipeline(StreamExecutionEnvironment env,
+                                     String projectId,
+                                     String subscriptionId,
+                                     String alertTopic,
+                                     double alertThreshold) {
+
+        LOG.info("Building Pub/Sub pipeline: project={}, subscription={}, alertTopic={}",
+                projectId, subscriptionId, alertTopic);
+
+        // Create Pub/Sub source
+        DataStream<Transaction> transactions = TransactionSource.createPubSubSource(
+                env, projectId, subscriptionId);
+
+        // Process transactions
+        DataStream<FraudAlert> alerts = processTransactions(transactions, alertThreshold);
+
+        // Output alerts to log (Pub/Sub sink can be added later if needed)
+        alerts.addSink(new AlertSink.LoggingSink())
+              .name("Logging Sink");
+
+        // Print to console for monitoring
+        alerts.print().name("Console Output");
+
+        // TODO: Add Pub/Sub sink for alerts if needed
+        // alerts.addSink(new PubSubAlertSink(projectId, alertTopic))
+        //       .name("Pub/Sub Alert Sink");
     }
 
     /**
