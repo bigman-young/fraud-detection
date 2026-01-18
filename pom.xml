@@ -14,7 +14,7 @@
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <java.version>11</java.version>
+        <java.version>17</java.version>
         <flink.version>1.18.1</flink.version>
         <kafka.version>3.6.1</kafka.version>
         <slf4j.version>2.0.9</slf4j.version>
@@ -23,6 +23,8 @@
         <jackson.version>2.16.1</jackson.version>
         <maven.compiler.source>${java.version}</maven.compiler.source>
         <maven.compiler.target>${java.version}</maven.compiler.target>
+        <!-- Set to 'provided' for cluster deployment, 'compile' for IDE/local run -->
+        <flink.scope>compile</flink.scope>
     </properties>
 
     <dependencies>
@@ -31,20 +33,27 @@
             <groupId>org.apache.flink</groupId>
             <artifactId>flink-streaming-java</artifactId>
             <version>${flink.version}</version>
-            <scope>provided</scope>
+            <scope>${flink.scope}</scope>
         </dependency>
 
         <dependency>
             <groupId>org.apache.flink</groupId>
             <artifactId>flink-clients</artifactId>
             <version>${flink.version}</version>
-            <scope>provided</scope>
+            <scope>${flink.scope}</scope>
         </dependency>
 
         <!-- Flink CEP for Complex Event Processing -->
         <dependency>
             <groupId>org.apache.flink</groupId>
             <artifactId>flink-cep</artifactId>
+            <version>${flink.version}</version>
+        </dependency>
+
+        <!-- Flink Connector Base (required by Kafka connector) -->
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-connector-base</artifactId>
             <version>${flink.version}</version>
         </dependency>
 
@@ -142,32 +151,14 @@
             <version>5.8.0</version>
             <scope>test</scope>
         </dependency>
-    </dependencies>
 
-    <profiles>
-        <!-- Profile for local development and debugging in IDE -->
-        <profile>
-            <id>local</id>
-            <activation>
-                <activeByDefault>true</activeByDefault>
-            </activation>
-            <dependencies>
-                <!-- Override provided scope for local development -->
-                <dependency>
-                    <groupId>org.apache.flink</groupId>
-                    <artifactId>flink-streaming-java</artifactId>
-                    <version>${flink.version}</version>
-                    <scope>compile</scope>
-                </dependency>
-                <dependency>
-                    <groupId>org.apache.flink</groupId>
-                    <artifactId>flink-clients</artifactId>
-                    <version>${flink.version}</version>
-                    <scope>compile</scope>
-                </dependency>
-            </dependencies>
-        </profile>
-    </profiles>
+        <!-- Google Cloud Pub/Sub -->
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-pubsub</artifactId>
+            <version>1.125.13</version>
+        </dependency>
+    </dependencies>
 
     <build>
         <plugins>
@@ -176,6 +167,8 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.12.1</version>
                 <configuration>
+<!--                    <source>${java.version}</source>-->
+<!--                    <target>${java.version}</target>-->
                     <release>${java.version}</release>
                 </configuration>
             </plugin>
@@ -186,26 +179,24 @@
                 <version>3.2.3</version>
             </plugin>
 
-            <!-- Exec plugin for running the application locally -->
+            <!-- Copy dependencies for local run -->
             <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>exec-maven-plugin</artifactId>
-                <version>3.1.0</version>
-                <configuration>
-                    <mainClass>com.hsbc.fraud.FraudDetectionJob</mainClass>
-                    <options>
-                        <option>--add-opens</option>
-                        <option>java.base/java.util=ALL-UNNAMED</option>
-                        <option>--add-opens</option>
-                        <option>java.base/java.lang=ALL-UNNAMED</option>
-                        <option>--add-opens</option>
-                        <option>java.base/java.lang.reflect=ALL-UNNAMED</option>
-                        <option>--add-opens</option>
-                        <option>java.base/java.text=ALL-UNNAMED</option>
-                        <option>--add-opens</option>
-                        <option>java.desktop/java.awt.font=ALL-UNNAMED</option>
-                    </options>
-                </configuration>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.6.1</version>
+                <executions>
+                    <execution>
+                        <id>copy-dependencies</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>copy-dependencies</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/dependency</outputDirectory>
+                            <includeScope>runtime</includeScope>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
 
             <!-- Shade plugin to create fat jar -->
@@ -264,5 +255,25 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!-- Profile for cluster deployment (excludes Flink runtime from fat jar) -->
+        <profile>
+            <id>cluster</id>
+            <properties>
+                <flink.scope>provided</flink.scope>
+            </properties>
+        </profile>
+        <!-- Profile for local/IDE development (includes all dependencies) -->
+        <profile>
+            <id>local</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <properties>
+                <flink.scope>compile</flink.scope>
+            </properties>
+        </profile>
+    </profiles>
 </project>
 
