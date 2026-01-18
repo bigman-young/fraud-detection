@@ -1,0 +1,179 @@
+# GitHub Actions workflow for deploying Transaction Producer to GKE
+# 
+# Required GitHub Secrets:
+#   - GCP_PROJECT_ID: hsbc-484505
+#   - GCP_SA_KEY: Service account key JSON (base64 encoded)
+#   - GKE_CLUSTER: hsbc-cluster-1
+#   - GKE_REGION: asia-east1
+
+name: Build and Deploy to GKE
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'src/**'
+      - 'pom.xml'
+      - 'Dockerfile.producer'
+      - 'k8s/gke/**'
+      - '.github/workflows/deploy-to-gke.yml'
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:  # Allow manual trigger
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  GKE_CLUSTER: ${{ secrets.GKE_CLUSTER }}
+  GKE_REGION: ${{ secrets.GKE_REGION }}
+  IMAGE_NAME: transaction-producer
+  DEPLOYMENT_NAME: transaction-producer
+  NAMESPACE: fraud-detection
+
+jobs:
+  # Job 1: Build and Test
+  build:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build with Maven
+        run: mvn clean package -DskipTests -B
+
+      - name: Run Tests
+        run: mvn test -B
+
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-jar
+          path: target/*.jar
+          retention-days: 1
+
+  # Job 2: Build and Push Docker Image
+  docker:
+    name: Build Docker Image
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tags }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download JAR artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: app-jar
+          path: target/
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker gcr.io --quiet
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: gcr.io/${{ env.PROJECT_ID }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=ref,event=pr
+
+      - name: Build and Push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.producer
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  # Job 3: Deploy to GKE
+  deploy:
+    name: Deploy to GKE
+    needs: docker
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+          install_components: 'gke-gcloud-auth-plugin'
+
+      - name: Get GKE credentials
+        run: |
+          gcloud container clusters get-credentials ${{ env.GKE_CLUSTER }} \
+            --region ${{ env.GKE_REGION }} \
+            --project ${{ env.PROJECT_ID }}
+
+      - name: Replace PROJECT_ID in manifests
+        run: |
+          sed -i "s/PROJECT_ID/${{ env.PROJECT_ID }}/g" k8s/gke/workload-identity.yaml
+          sed -i "s/PROJECT_ID/${{ env.PROJECT_ID }}/g" k8s/gke/deployment.yaml
+
+      - name: Deploy to GKE
+        run: |
+          # Create namespace if not exists
+          kubectl apply -f k8s/gke/namespace.yaml
+          
+          # Apply configurations
+          kubectl apply -f k8s/gke/configmap.yaml
+          kubectl apply -f k8s/gke/workload-identity.yaml
+          kubectl apply -f k8s/gke/deployment.yaml
+          
+          # Update image to specific SHA
+          kubectl set image deployment/${{ env.DEPLOYMENT_NAME }} \
+            producer=gcr.io/${{ env.PROJECT_ID }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            -n ${{ env.NAMESPACE }}
+
+      - name: Wait for deployment
+        run: |
+          kubectl rollout status deployment/${{ env.DEPLOYMENT_NAME }} \
+            -n ${{ env.NAMESPACE }} \
+            --timeout=300s
+
+      - name: Get deployment status
+        run: |
+          echo "=== Deployment Status ==="
+          kubectl get deployment ${{ env.DEPLOYMENT_NAME }} -n ${{ env.NAMESPACE }}
+          echo ""
+          echo "=== Pods ==="
+          kubectl get pods -n ${{ env.NAMESPACE }} -l app=${{ env.DEPLOYMENT_NAME }}
