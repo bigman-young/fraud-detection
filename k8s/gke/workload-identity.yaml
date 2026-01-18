@@ -1,0 +1,11 @@
+# Kubernetes Service Account with GKE Workload Identity
+# This allows the pod to authenticate to GCP services without a key file
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: transaction-producer-sa
+  namespace: fraud
+  annotations:
+    iam.gke.io/gcp-service-account: transaction-producer@hsbc-484505.iam.gserviceaccount.com
+  labels:
+    app: transaction-producer
