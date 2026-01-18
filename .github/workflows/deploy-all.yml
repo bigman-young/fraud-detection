@@ -1,0 +1,300 @@
+# GitHub Actions workflow for deploying the complete Fraud Detection System to GKE
+# 
+# This workflow deploys both:
+#   1. Transaction Producer (writes to Pub/Sub)
+#   2. Flink Fraud Detection Job (reads from Pub/Sub and detects fraud)
+#
+# Required GitHub Secrets:
+#   - GCP_PROJECT_ID: hsbc-484505
+#   - GCP_SA_KEY: Service account key JSON (base64 encoded)
+#   - GKE_CLUSTER: hsbc-cluster-1
+#   - GKE_REGION: asia-east1
+
+name: Deploy Complete Fraud Detection System
+
+on:
+  workflow_dispatch:  # Manual trigger only for full deployment
+    inputs:
+      deploy_producer:
+        description: 'Deploy Transaction Producer'
+        required: true
+        default: true
+        type: boolean
+      deploy_flink:
+        description: 'Deploy Flink Fraud Detection Job'
+        required: true
+        default: true
+        type: boolean
+      source_type:
+        description: 'Flink Job data source (PUBSUB, KAFKA, DEMO)'
+        required: false
+        default: 'PUBSUB'
+        type: choice
+        options:
+          - PUBSUB
+          - KAFKA
+          - DEMO
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  GKE_CLUSTER: ${{ secrets.GKE_CLUSTER }}
+  GKE_REGION: ${{ secrets.GKE_REGION }}
+  NAMESPACE: fraud
+  ARTIFACT_REGISTRY: us-central1-docker.pkg.dev
+  REPOSITORY: fraud-repo
+
+jobs:
+  # Job 1: Build and Test
+  build:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build with Maven
+        run: mvn clean package -DskipTests -B
+
+      - name: Run Tests
+        run: mvn test -B
+
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-jar
+          path: target/fraud-detection-system-*.jar
+          retention-days: 1
+
+  # Job 2: Build and Push Producer Image
+  build-producer:
+    name: Build Producer Image
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event.inputs.deploy_producer == 'true'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download JAR artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: app-jar
+          path: target/
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.ARTIFACT_REGISTRY }} --quiet
+
+      - name: Build and Push Producer image
+        run: |
+          IMAGE=${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/transaction-producer:${{ github.sha }}
+          docker build -f Dockerfile.producer -t $IMAGE .
+          docker tag $IMAGE ${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/transaction-producer:latest
+          docker push $IMAGE
+          docker push ${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/transaction-producer:latest
+
+  # Job 3: Build and Push Flink Job Image
+  build-flink:
+    name: Build Flink Job Image
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event.inputs.deploy_flink == 'true'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download JAR artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: app-jar
+          path: target/
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.ARTIFACT_REGISTRY }} --quiet
+
+      - name: Build and Push Flink Job image
+        run: |
+          IMAGE=${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/fraud-detection-job:${{ github.sha }}
+          docker build -f Dockerfile.flink-job -t $IMAGE .
+          docker tag $IMAGE ${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/fraud-detection-job:latest
+          docker push $IMAGE
+          docker push ${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/fraud-detection-job:latest
+
+  # Job 4: Deploy to GKE
+  deploy:
+    name: Deploy to GKE
+    needs: [build-producer, build-flink]
+    runs-on: ubuntu-latest
+    # Run even if one of the build jobs was skipped
+    if: always() && needs.build-producer.result != 'failure' && needs.build-flink.result != 'failure' && (needs.build-producer.result == 'success' || needs.build-flink.result == 'success')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+          install_components: 'gke-gcloud-auth-plugin'
+
+      - name: Get GKE credentials
+        run: |
+          gcloud container clusters get-credentials ${{ env.GKE_CLUSTER }} \
+            --region ${{ env.GKE_REGION }} \
+            --project ${{ env.PROJECT_ID }}
+
+      - name: Create namespace
+        run: kubectl apply -f k8s/gke/namespace.yaml
+
+      # Setup Workload Identity for both services
+      - name: Setup Workload Identity
+        run: |
+          # Producer Service Account
+          if [ "${{ github.event.inputs.deploy_producer }}" = "true" ]; then
+            SA_NAME="transaction-producer"
+            SA_EMAIL="${SA_NAME}@${{ env.PROJECT_ID }}.iam.gserviceaccount.com"
+            
+            if ! gcloud iam service-accounts describe ${SA_EMAIL} --project ${{ env.PROJECT_ID }} &>/dev/null; then
+              gcloud iam service-accounts create ${SA_NAME} \
+                --display-name="Transaction Producer Service Account" \
+                --project ${{ env.PROJECT_ID }}
+            fi
+            
+            gcloud projects add-iam-policy-binding ${{ env.PROJECT_ID }} \
+              --member="serviceAccount:${SA_EMAIL}" \
+              --role="roles/pubsub.publisher" \
+              --quiet || true
+            
+            gcloud iam service-accounts add-iam-policy-binding ${SA_EMAIL} \
+              --role="roles/iam.workloadIdentityUser" \
+              --member="serviceAccount:${{ env.PROJECT_ID }}.svc.id.goog[${{ env.NAMESPACE }}/transaction-producer-sa]" \
+              --project ${{ env.PROJECT_ID }} \
+              --quiet || true
+          fi
+          
+          # Flink Job Service Account
+          if [ "${{ github.event.inputs.deploy_flink }}" = "true" ]; then
+            SA_NAME="fraud-detection"
+            SA_EMAIL="${SA_NAME}@${{ env.PROJECT_ID }}.iam.gserviceaccount.com"
+            
+            if ! gcloud iam service-accounts describe ${SA_EMAIL} --project ${{ env.PROJECT_ID }} &>/dev/null; then
+              gcloud iam service-accounts create ${SA_NAME} \
+                --display-name="Fraud Detection Service Account" \
+                --project ${{ env.PROJECT_ID }}
+            fi
+            
+            gcloud projects add-iam-policy-binding ${{ env.PROJECT_ID }} \
+              --member="serviceAccount:${SA_EMAIL}" \
+              --role="roles/pubsub.subscriber" \
+              --quiet || true
+            
+            gcloud iam service-accounts add-iam-policy-binding ${SA_EMAIL} \
+              --role="roles/iam.workloadIdentityUser" \
+              --member="serviceAccount:${{ env.PROJECT_ID }}.svc.id.goog[${{ env.NAMESPACE }}/fraud-detection-sa]" \
+              --project ${{ env.PROJECT_ID }} \
+              --quiet || true
+          fi
+
+      # Deploy Producer
+      - name: Deploy Transaction Producer
+        if: github.event.inputs.deploy_producer == 'true'
+        run: |
+          echo "Deploying Transaction Producer..."
+          
+          # Update image in deployment
+          sed -i "s|gcr.io/hsbc-484505/transaction-producer:latest|${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/transaction-producer:${{ github.sha }}|g" k8s/gke/deployment.yaml
+          
+          kubectl apply -f k8s/gke/configmap.yaml
+          kubectl apply -f k8s/gke/workload-identity.yaml
+          kubectl apply -f k8s/gke/deployment.yaml
+          
+          kubectl rollout status deployment/transaction-producer -n ${{ env.NAMESPACE }} --timeout=180s
+
+      # Deploy Flink Job
+      - name: Deploy Flink Fraud Detection Job
+        if: github.event.inputs.deploy_flink == 'true'
+        run: |
+          echo "Deploying Flink Fraud Detection Job..."
+          
+          # Update source type in configmap
+          sed -i "s/SOURCE_TYPE: \"PUBSUB\"/SOURCE_TYPE: \"${{ github.event.inputs.source_type }}\"/g" k8s/gke/flink-job-configmap.yaml
+          
+          # Update image in deployment
+          sed -i "s|gcr.io/hsbc-484505/fraud-detection-job:latest|${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/fraud-detection-job:${{ github.sha }}|g" k8s/gke/flink-job-deployment.yaml
+          
+          kubectl apply -f k8s/gke/flink-job-configmap.yaml
+          kubectl apply -f k8s/gke/flink-job-deployment.yaml
+          
+          kubectl rollout status deployment/fraud-detection-job -n ${{ env.NAMESPACE }} --timeout=300s
+
+      - name: Deployment Summary
+        run: |
+          echo ""
+          echo "============================================="
+          echo "  Fraud Detection System Deployment Complete"
+          echo "============================================="
+          echo ""
+          echo "=== Deployments ==="
+          kubectl get deployments -n ${{ env.NAMESPACE }}
+          echo ""
+          echo "=== Pods ==="
+          kubectl get pods -n ${{ env.NAMESPACE }}
+          echo ""
+          echo "=== ConfigMaps ==="
+          kubectl get configmaps -n ${{ env.NAMESPACE }}
+          echo ""
+          echo "============================================="
+          echo "  Configuration"
+          echo "============================================="
+          echo "Project: ${{ env.PROJECT_ID }}"
+          echo "Cluster: ${{ env.GKE_CLUSTER }}"
+          echo "Region: ${{ env.GKE_REGION }}"
+          echo "Namespace: ${{ env.NAMESPACE }}"
+          echo "Source Type: ${{ github.event.inputs.source_type }}"
+          echo ""
+          echo "============================================="
+          echo "  Monitoring Commands"
+          echo "============================================="
+          echo "# View Producer logs"
+          echo "kubectl logs -f deployment/transaction-producer -n ${{ env.NAMESPACE }}"
+          echo ""
+          echo "# View Flink Job logs"
+          echo "kubectl logs -f deployment/fraud-detection-job -n ${{ env.NAMESPACE }}"
+          echo ""
+          echo "# Watch all pods"
+          echo "kubectl get pods -n ${{ env.NAMESPACE }} -w"
