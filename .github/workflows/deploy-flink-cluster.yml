@@ -8,8 +8,10 @@
 # Required GitHub Secrets:
 #   - GCP_PROJECT_ID: hsbc-484505
 #   - GCP_SA_KEY: Service account key JSON (base64 encoded)
-#   - GKE_CLUSTER: hsbc-cluster-1
-#   - GKE_REGION: asia-east1
+#
+# Flink Cluster Configuration (hardcoded, different from Producer cluster):
+#   - Cluster: flink-cluster
+#   - Region: asia-east1-a
 
 name: Deploy Flink Cluster to GKE
 
@@ -48,8 +50,9 @@ on:
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  GKE_CLUSTER: ${{ secrets.GKE_CLUSTER }}
-  GKE_REGION: ${{ secrets.GKE_REGION }}
+  # Flink cluster uses dedicated cluster (different from Producer)
+  GKE_CLUSTER: flink-cluster
+  GKE_REGION: asia-east1-a
   IMAGE_NAME: flink-fraud-detection
   NAMESPACE: fraud
   ARTIFACT_REGISTRY: us-central1-docker.pkg.dev
