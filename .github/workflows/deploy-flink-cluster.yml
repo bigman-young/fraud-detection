@@ -14,16 +14,16 @@
 name: Deploy Flink Cluster to GKE
 
 on:
-  push:
-    branches:
-      - main
-      - master
-    paths:
-      - 'src/main/java/com/hsbc/fraud/**'
-      - 'pom.xml'
-      - 'Dockerfile.flink-cluster'
-      - 'k8s/gke/flink/**'
-      - '.github/workflows/deploy-flink-cluster.yml'
+  # push:
+  #   branches:
+  #     - main
+  #     - master
+  #   paths:
+  #     - 'src/main/java/com/hsbc/fraud/**'
+  #     - 'pom.xml'
+  #     - 'Dockerfile.flink-cluster'
+  #     - 'k8s/gke/flink/**'
+  #     - '.github/workflows/deploy-flink-cluster.yml'
   workflow_dispatch:
     inputs:
       taskmanager_replicas:
