@@ -18,6 +18,9 @@ spec:
       serviceAccountName: fraud-detection-sa
       containers:
         - name: flink-job
+          # For GitHub Actions, use Artifact Registry:
+          # image: us-central1-docker.pkg.dev/hsbc-484505/fraud-repo/fraud-detection-job:latest
+          # For local/manual deployment, use GCR:
           image: gcr.io/hsbc-484505/fraud-detection-job:latest
           imagePullPolicy: Always
           env:
@@ -29,11 +32,11 @@ spec:
                 name: flink-job-config
           resources:
             requests:
-              memory: "1Gi"
-              cpu: "500m"
+              memory: "256Mi"
+              cpu: "100m"
             limits:
-              memory: "2Gi"
-              cpu: "1000m"
+              memory: "512Mi"
+              cpu: "500m"
           # Liveness probe
           livenessProbe:
             exec:
@@ -68,29 +71,25 @@ metadata:
     # Replace with your GCP service account
     iam.gke.io/gcp-service-account: fraud-detection@hsbc-484505.iam.gserviceaccount.com
 ---
-# Optional: HorizontalPodAutoscaler
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: fraud-detection-job-hpa
-  namespace: fraud
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: fraud-detection-job
-  minReplicas: 1
-  maxReplicas: 3
-  metrics:
-    - type: Resource
-      resource:
-        name: cpu
-        target:
-          type: Utilization
-          averageUtilization: 70
-    - type: Resource
-      resource:
-        name: memory
-        target:
-          type: Utilization
-          averageUtilization: 80
+# HorizontalPodAutoscaler disabled for minimal setup
+# Uncomment to enable auto-scaling
+# ---
+# apiVersion: autoscaling/v2
+# kind: HorizontalPodAutoscaler
+# metadata:
+#   name: fraud-detection-job-hpa
+#   namespace: fraud
+# spec:
+#   scaleTargetRef:
+#     apiVersion: apps/v1
+#     kind: Deployment
+#     name: fraud-detection-job
+#   minReplicas: 1
+#   maxReplicas: 2
+#   metrics:
+#     - type: Resource
+#       resource:
+#         name: cpu
+#         target:
+#           type: Utilization
+#           averageUtilization: 80
