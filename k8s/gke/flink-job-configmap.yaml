@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fraud-detection-job
+  namespace: fraud
+  labels:
+    app: fraud-detection-job
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fraud-detection-job
+  template:
+    metadata:
+      labels:
+        app: fraud-detection-job
+    spec:
+      serviceAccountName: fraud-detection-sa
+      containers:
+        - name: flink-job
+          image: gcr.io/hsbc-484505/fraud-detection-job:latest
+          imagePullPolicy: Always
+          env:
+            # GCP Project ID - REQUIRED for Pub/Sub
+            - name: GOOGLE_CLOUD_PROJECT
+              value: "hsbc-484505"
+          envFrom:
+            - configMapRef:
+                name: flink-job-config
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+          # Liveness probe
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "ps aux | grep -v grep | grep java"
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          # Readiness probe
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "ps aux | grep -v grep | grep java"
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+      restartPolicy: Always
+---
+# Service Account for Flink Job with Workload Identity
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fraud-detection-sa
+  namespace: fraud
+  annotations:
+    # Replace with your GCP service account
+    iam.gke.io/gcp-service-account: fraud-detection@hsbc-484505.iam.gserviceaccount.com
+---
+# Optional: HorizontalPodAutoscaler
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: fraud-detection-job-hpa
+  namespace: fraud
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: fraud-detection-job
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
