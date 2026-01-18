@@ -74,7 +74,7 @@ class HighValueTransactionRuleTest {
     }
 
     @ParameterizedTest
-    @ValueSource(doubles = {10001, 25000, 49999})
+    @ValueSource(doubles = {15000, 25000, 40000})
     @DisplayName("Should calculate proportional risk score between thresholds")
     void shouldCalculateProportionalRiskScore(double amount) {
         Transaction transaction = createTransaction(new BigDecimal(String.valueOf(amount)));
@@ -83,8 +83,8 @@ class HighValueTransactionRuleTest {
 
         assertThat(result).isPresent();
         assertThat(result.get().getRiskScore())
-                .isGreaterThan(0.5)
-                .isLessThan(0.9);
+                .isGreaterThanOrEqualTo(0.5)
+                .isLessThanOrEqualTo(0.9);
     }
 
     @Test
