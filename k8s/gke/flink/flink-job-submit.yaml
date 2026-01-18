@@ -1,0 +1,91 @@
+# Job to submit the Fraud Detection Flink Job to the cluster
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: flink-job-submit
+  namespace: fraud
+  labels:
+    app: flink
+    component: job-submit
+spec:
+  ttlSecondsAfterFinished: 300  # Clean up after 5 minutes
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: flink
+        component: job-submit
+    spec:
+      serviceAccountName: flink-sa
+      restartPolicy: OnFailure
+      initContainers:
+        # Wait for JobManager to be ready
+        - name: wait-for-jobmanager
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Flink JobManager..."
+              until nc -z flink-jobmanager 8081; do
+                echo "JobManager not ready, waiting..."
+                sleep 5
+              done
+              echo "JobManager is ready!"
+      containers:
+        - name: job-submitter
+          # Use custom image with our JAR
+          image: us-central1-docker.pkg.dev/hsbc-484505/fraud-repo/flink-fraud-detection:latest
+          command:
+            - /bin/bash
+            - -c
+            - |
+              echo "============================================="
+              echo "  Submitting Fraud Detection Job to Flink"
+              echo "============================================="
+              echo ""
+              
+              # Check JobManager status
+              echo "Checking JobManager status..."
+              curl -s http://flink-jobmanager:8081/overview | head -20
+              echo ""
+              
+              # Submit the job
+              echo "Submitting job..."
+              /opt/flink/bin/flink run \
+                --jobmanager flink-jobmanager:8081 \
+                --detached \
+                --class com.hsbc.fraud.FraudDetectionJob \
+                /opt/flink/usrlib/fraud-detection-system-1.0.0.jar
+              
+              # Check if submission was successful
+              if [ $? -eq 0 ]; then
+                echo ""
+                echo "Job submitted successfully!"
+                echo ""
+                echo "Running jobs:"
+                curl -s http://flink-jobmanager:8081/jobs | python3 -m json.tool 2>/dev/null || curl -s http://flink-jobmanager:8081/jobs
+              else
+                echo "Job submission failed!"
+                exit 1
+              fi
+          env:
+            - name: SOURCE_TYPE
+              valueFrom:
+                configMapKeyRef:
+                  name: flink-job-config
+                  key: SOURCE_TYPE
+            - name: GOOGLE_CLOUD_PROJECT
+              value: "hsbc-484505"
+            - name: PUBSUB_SUBSCRIPTION
+              valueFrom:
+                configMapKeyRef:
+                  name: flink-job-config
+                  key: PUBSUB_SUBSCRIPTION
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "100m"
