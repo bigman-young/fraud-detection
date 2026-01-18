@@ -6,28 +6,26 @@ metadata:
   labels:
     app: flink
 data:
-  # Flink configuration file (minimal resource configuration)
+  # Flink configuration file (optimized for 8GB single-node cluster)
   flink-conf.yaml: |
-    # JobManager configuration (minimal)
+    # JobManager configuration (1GB total)
     jobmanager.rpc.address: flink-jobmanager
     jobmanager.rpc.port: 6123
-    jobmanager.memory.process.size: 512m
-    jobmanager.memory.flink.size: 256m
-    jobmanager.memory.heap.size: 192m
+    jobmanager.memory.process.size: 1024m
+    jobmanager.memory.jvm-overhead.min: 64m
+    jobmanager.memory.jvm-overhead.max: 128m
+    jobmanager.memory.jvm-metaspace.size: 128m
     jobmanager.execution.failover-strategy: region
 
-    # TaskManager configuration (minimal)
-    taskmanager.numberOfTaskSlots: 1
-    taskmanager.memory.process.size: 512m
-    taskmanager.memory.flink.size: 256m
-    taskmanager.memory.framework.heap.size: 64m
-    taskmanager.memory.task.heap.size: 128m
-    taskmanager.memory.managed.size: 64m
-    taskmanager.memory.network.min: 32m
-    taskmanager.memory.network.max: 64m
+    # TaskManager configuration (2GB total)
+    taskmanager.numberOfTaskSlots: 2
+    taskmanager.memory.process.size: 2048m
+    taskmanager.memory.jvm-overhead.min: 128m
+    taskmanager.memory.jvm-overhead.max: 256m
+    taskmanager.memory.jvm-metaspace.size: 128m
 
-    # Parallelism (minimal)
-    parallelism.default: 1
+    # Parallelism
+    parallelism.default: 2
 
     # High Availability (optional, requires ZooKeeper)
     # high-availability: zookeeper
