@@ -23,12 +23,11 @@ spec:
           env:
             # GCP Project ID - REQUIRED
             - name: GOOGLE_CLOUD_PROJECT
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.namespace
-            # Or set explicitly:
-            # - name: GOOGLE_CLOUD_PROJECT
-            #   value: "your-project-id"
+              value: "hsbc-484505"
+              #valueFrom:
+              #  fieldRef:
+              #    fieldPath: metadata.namespace
+          
           envFrom:
             - configMapRef:
                 name: producer-config
