@@ -1,5 +1,5 @@
 # GitHub Actions workflow for deploying Flink Cluster to GKE
-# 
+#
 # This workflow deploys a complete Flink cluster:
 #   - JobManager (1 replica)
 #   - TaskManager (2+ replicas with HPA)
@@ -14,34 +14,34 @@
 name: Deploy Flink Cluster to GKE
 
 on:
-  # push:
-  #   branches:
-  #     - main
-  #     - master
-  #   paths:
-  #     - 'src/main/java/com/hsbc/fraud/**'
-  #     - 'pom.xml'
-  #     - 'Dockerfile.flink-cluster'
-  #     - 'k8s/gke/flink/**'
-  #     - '.github/workflows/deploy-flink-cluster.yml'
+  push:
+    # branches:
+    #   - main
+    #   - master
+    # paths:
+    #   - "src/main/java/com/hsbc/fraud/**"
+    #   - "pom.xml"
+    #   - "Dockerfile.flink-cluster"
+    #   - "k8s/gke/flink/**"
+    #   - ".github/workflows/deploy-flink-cluster.yml"
   workflow_dispatch:
     inputs:
       taskmanager_replicas:
-        description: 'Number of TaskManager replicas'
+        description: "Number of TaskManager replicas"
         required: false
-        default: '1'
+        default: "1"
         type: string
       source_type:
-        description: 'Data source type (PUBSUB, KAFKA, DEMO)'
+        description: "Data source type (PUBSUB, KAFKA, DEMO)"
         required: false
-        default: 'PUBSUB'
+        default: "PUBSUB"
         type: choice
         options:
           - PUBSUB
           - KAFKA
           - DEMO
       deploy_cluster_only:
-        description: 'Deploy cluster without submitting job'
+        description: "Deploy cluster without submitting job"
         required: false
         default: false
         type: boolean
@@ -60,7 +60,7 @@ jobs:
   build:
     name: Build and Test
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -68,8 +68,8 @@ jobs:
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
-          distribution: 'temurin'
+          java-version: "17"
+          distribution: "temurin"
           cache: maven
 
       - name: Build with Maven
@@ -143,7 +143,7 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: ${{ env.PROJECT_ID }}
-          install_components: 'gke-gcloud-auth-plugin'
+          install_components: "gke-gcloud-auth-plugin"
 
       - name: Get GKE credentials
         run: |
@@ -151,40 +151,28 @@ jobs:
             --region ${{ env.GKE_REGION }} \
             --project ${{ env.PROJECT_ID }}
 
-      - name: Setup GCP Service Account for Flink
+      - name: Verify GCP Service Account for Flink
         run: |
+          # NOTE: Service accounts should be pre-created manually with proper permissions
+          # Run these commands once in GCP Console or with an admin account:
+          #
+          # gcloud iam service-accounts create flink-cluster --display-name="Flink Cluster Service Account"
+          # gcloud projects add-iam-policy-binding $PROJECT_ID --member="serviceAccount:flink-cluster@$PROJECT_ID.iam.gserviceaccount.com" --role="roles/pubsub.subscriber"
+          # gcloud iam service-accounts add-iam-policy-binding flink-cluster@$PROJECT_ID.iam.gserviceaccount.com --role="roles/iam.workloadIdentityUser" --member="serviceAccount:$PROJECT_ID.svc.id.goog[fraud/flink-sa]"
+
           SA_NAME="flink-cluster"
           SA_EMAIL="${SA_NAME}@${{ env.PROJECT_ID }}.iam.gserviceaccount.com"
-          
-          # Create service account if not exists
-          if ! gcloud iam service-accounts describe ${SA_EMAIL} --project ${{ env.PROJECT_ID }} &>/dev/null; then
-            echo "Creating GCP service account: ${SA_EMAIL}"
-            gcloud iam service-accounts create ${SA_NAME} \
-              --display-name="Flink Cluster Service Account" \
-              --project ${{ env.PROJECT_ID }}
+
+          echo "Verifying service account exists: ${SA_EMAIL}"
+          if gcloud iam service-accounts describe ${SA_EMAIL} --project ${{ env.PROJECT_ID }} &>/dev/null; then
+            echo "✓ Service account ${SA_EMAIL} exists"
+          else
+            echo "✗ Service account ${SA_EMAIL} not found!"
+            echo ""
+            echo "Please create it manually with:"
+            echo "  gcloud iam service-accounts create flink-cluster --display-name='Flink Cluster Service Account' --project ${{ env.PROJECT_ID }}"
+            exit 1
           fi
-          
-          # Grant Pub/Sub Subscriber role
-          echo "Granting Pub/Sub Subscriber role..."
-          gcloud projects add-iam-policy-binding ${{ env.PROJECT_ID }} \
-            --member="serviceAccount:${SA_EMAIL}" \
-            --role="roles/pubsub.subscriber" \
-            --quiet || true
-          
-          # Grant GCS access for checkpoints (optional)
-          echo "Granting GCS access..."
-          gcloud projects add-iam-policy-binding ${{ env.PROJECT_ID }} \
-            --member="serviceAccount:${SA_EMAIL}" \
-            --role="roles/storage.objectAdmin" \
-            --quiet || true
-          
-          # Bind Workload Identity
-          echo "Binding Workload Identity..."
-          gcloud iam service-accounts add-iam-policy-binding ${SA_EMAIL} \
-            --role="roles/iam.workloadIdentityUser" \
-            --member="serviceAccount:${{ env.PROJECT_ID }}.svc.id.goog[${{ env.NAMESPACE }}/flink-sa]" \
-            --project ${{ env.PROJECT_ID }} \
-            --quiet || true
 
       - name: Set configuration
         id: config
@@ -195,7 +183,7 @@ jobs:
           else
             echo "tm_replicas=2" >> $GITHUB_OUTPUT
           fi
-          
+
           # Source type
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.source_type }}" ]; then
             echo "source_type=${{ github.event.inputs.source_type }}" >> $GITHUB_OUTPUT
@@ -207,14 +195,14 @@ jobs:
         run: |
           # Update image in JobManager and TaskManager
           FLINK_IMAGE=${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-          
+
           sed -i "s|image: flink:1.18.1-java17|image: ${FLINK_IMAGE}|g" k8s/gke/flink/flink-jobmanager.yaml
           sed -i "s|image: flink:1.18.1-java17|image: ${FLINK_IMAGE}|g" k8s/gke/flink/flink-taskmanager.yaml
           sed -i "s|image: us-central1-docker.pkg.dev/hsbc-484505/fraud-repo/flink-fraud-detection:latest|image: ${FLINK_IMAGE}|g" k8s/gke/flink/flink-job-submit.yaml
-          
+
           # Update TaskManager replicas
           sed -i "s|replicas: 2|replicas: ${{ steps.config.outputs.tm_replicas }}|g" k8s/gke/flink/flink-taskmanager.yaml
-          
+
           # Update source type in job config
           sed -i "s|SOURCE_TYPE: \"PUBSUB\"|SOURCE_TYPE: \"${{ steps.config.outputs.source_type }}\"|g" k8s/gke/flink-job-configmap.yaml
 
@@ -224,25 +212,25 @@ jobs:
       - name: Deploy Flink Cluster
         run: |
           echo "Deploying Flink cluster components..."
-          
+
           # Apply ConfigMaps
           kubectl apply -f k8s/gke/flink/flink-configmap.yaml
           kubectl apply -f k8s/gke/flink-job-configmap.yaml
-          
+
           # Apply Service Account and RBAC
           kubectl apply -f k8s/gke/flink/flink-serviceaccount.yaml
-          
+
           # Deploy JobManager
           echo "Deploying JobManager..."
           kubectl apply -f k8s/gke/flink/flink-jobmanager.yaml
-          
+
           # Wait for JobManager to be ready
           kubectl rollout status deployment/flink-jobmanager -n ${{ env.NAMESPACE }} --timeout=180s
-          
+
           # Deploy TaskManagers
           echo "Deploying TaskManagers..."
           kubectl apply -f k8s/gke/flink/flink-taskmanager.yaml
-          
+
           # Wait for TaskManagers to be ready
           kubectl rollout status deployment/flink-taskmanager -n ${{ env.NAMESPACE }} --timeout=180s
 
@@ -261,7 +249,7 @@ jobs:
           echo "=== Services ==="
           kubectl get services -n ${{ env.NAMESPACE }} -l app=flink
           echo ""
-          
+
           # Get JobManager Web UI URL
           echo "=== Flink Web UI ==="
           WEBUI_IP=$(kubectl get service flink-jobmanager-webui -n ${{ env.NAMESPACE }} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "pending")
@@ -287,7 +275,7 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: ${{ env.PROJECT_ID }}
-          install_components: 'gke-gcloud-auth-plugin'
+          install_components: "gke-gcloud-auth-plugin"
 
       - name: Get GKE credentials
         run: |
@@ -303,17 +291,17 @@ jobs:
       - name: Submit Fraud Detection Job
         run: |
           echo "Submitting Fraud Detection Job..."
-          
+
           # Delete previous job if exists
           kubectl delete job flink-job-submit -n ${{ env.NAMESPACE }} --ignore-not-found=true
-          
+
           # Submit new job
           kubectl apply -f k8s/gke/flink/flink-job-submit.yaml
-          
+
           # Wait for job to complete
           echo "Waiting for job submission to complete..."
           kubectl wait --for=condition=complete job/flink-job-submit -n ${{ env.NAMESPACE }} --timeout=120s || true
-          
+
           # Show job logs
           echo ""
           echo "=== Job Submission Logs ==="
@@ -325,15 +313,15 @@ jobs:
           echo "============================================="
           echo "  Verifying Flink Jobs"
           echo "============================================="
-          
+
           # Get JobManager pod
           JM_POD=$(kubectl get pods -n ${{ env.NAMESPACE }} -l component=jobmanager -o jsonpath='{.items[0].metadata.name}')
-          
+
           # Check running jobs via REST API
           echo "=== Running Jobs ==="
           kubectl exec -n ${{ env.NAMESPACE }} ${JM_POD} -- curl -s http://localhost:8081/jobs 2>/dev/null || echo "Could not fetch jobs"
           echo ""
-          
+
           # Get cluster overview
           echo "=== Cluster Overview ==="
           kubectl exec -n ${{ env.NAMESPACE }} ${JM_POD} -- curl -s http://localhost:8081/overview 2>/dev/null || echo "Could not fetch overview"
