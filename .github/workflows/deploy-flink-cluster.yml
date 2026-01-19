@@ -211,6 +211,33 @@ jobs:
 
       - name: Create namespace
         run: kubectl apply -f k8s/gke/namespace.yaml
+        
+      - name: Create GCP SA Key Secret for Flink
+        run: |
+          echo "Creating K8s secret from GitHub Secret for Flink..."
+
+          # Check if FLINK_SA_KEY secret exists
+          if [ -z "${{ secrets.FLINK_SA_KEY }}" ]; then
+            echo "⚠ Warning: FLINK_SA_KEY secret not found in GitHub Secrets"
+            echo "Flink will not be able to access Pub/Sub without this secret"
+            echo "Please add FLINK_SA_KEY to GitHub Secrets"
+          else
+            # Decode the base64 encoded service account key
+            echo '${{ secrets.FLINK_SA_KEY }}' | base64 -d > /tmp/flink-sa-key.json
+            
+            # Delete existing secret if exists
+            kubectl delete secret flink-gcp-sa-key -n ${{ env.NAMESPACE }} --ignore-not-found=true
+            
+            # Create new secret
+            kubectl create secret generic flink-gcp-sa-key \
+              --from-file=key.json=/tmp/flink-sa-key.json \
+              --namespace=${{ env.NAMESPACE }}
+            
+            # Clean up local key file
+            rm -f /tmp/flink-sa-key.json
+            
+            echo "✓ K8s secret 'flink-gcp-sa-key' created"
+          fi
 
       - name: Deploy Flink Cluster
         run: |
