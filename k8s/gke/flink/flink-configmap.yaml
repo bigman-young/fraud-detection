@@ -11,12 +11,21 @@ data:
     # JobManager configuration (1GB total)
     jobmanager.rpc.address: flink-jobmanager
     jobmanager.rpc.port: 6123
+    jobmanager.bind-host: 0.0.0.0
     jobmanager.memory.process.size: 1024m
     jobmanager.memory.jvm-overhead.min: 64m
     jobmanager.memory.jvm-overhead.max: 128m
     jobmanager.memory.jvm-metaspace.size: 128m
     jobmanager.execution.failover-strategy: region
-
+    
+    # BlobServer configuration (fixed port for K8s)
+    blob.server.port: 6124
+    blob.server.bind-host: 0.0.0.0
+    blob.fetch.retries: 10
+    blob.fetch.backlog: 1000
+    blob.client.connect-timeout: 60000
+    blob.client.socket-timeout: 300000
+    
     # TaskManager configuration (2GB total)
     taskmanager.rpc.port: 6122
     taskmanager.numberOfTaskSlots: 2
