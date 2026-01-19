@@ -1,0 +1,235 @@
+# GitHub Actions workflow for submitting Flink Job to existing cluster
+#
+# This workflow ONLY submits the job to an already running Flink cluster.
+# Use deploy-flink-cluster.yml if you need to deploy the cluster first.
+#
+# Required GitHub Secrets:
+#   - GCP_PROJECT_ID: hsbc-484505
+#   - GCP_SA_KEY: Service account key JSON (base64 encoded)
+
+name: Submit Flink Job (to existing cluster)
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_type:
+        description: "Data source type"
+        required: false
+        default: "PUBSUB"
+        type: choice
+        options:
+          - PUBSUB
+          - KAFKA
+          - DEMO
+      rebuild_image:
+        description: "Rebuild Docker image before submitting"
+        required: false
+        default: true
+        type: boolean
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  # Flink cluster configuration (hardcoded)
+  GKE_CLUSTER: flink-cluster
+  GKE_REGION: asia-east1-a
+  IMAGE_NAME: flink-fraud-detection
+  NAMESPACE: fraud
+  ARTIFACT_REGISTRY: us-central1-docker.pkg.dev
+  REPOSITORY: fraud-repo
+
+jobs:
+  # Job 1: Build (optional)
+  build:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    if: github.event.inputs.rebuild_image == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          cache: maven
+
+      - name: Build with Maven
+        run: mvn clean package -DskipTests -B
+
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flink-job-jar
+          path: target/fraud-detection-system-*.jar
+          retention-days: 1
+
+  # Job 2: Build Docker Image (optional)
+  docker:
+    name: Build Docker Image
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event.inputs.rebuild_image == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download JAR artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: flink-job-jar
+          path: target/
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.ARTIFACT_REGISTRY }} --quiet
+
+      - name: Build and Push Docker image
+        run: |
+          IMAGE=${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          docker build -f Dockerfile.flink-cluster -t $IMAGE .
+          docker tag $IMAGE ${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:latest
+          docker push $IMAGE
+          docker push ${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:latest
+
+  # Job 3: Submit to Flink Cluster
+  submit:
+    name: Submit Job to Flink
+    needs: [build, docker]
+    runs-on: ubuntu-latest
+    if: always() && (needs.build.result == 'success' || needs.build.result == 'skipped')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+          install_components: "gke-gcloud-auth-plugin"
+
+      - name: Get GKE credentials
+        run: |
+          gcloud container clusters get-credentials ${{ env.GKE_CLUSTER }} \
+            --region ${{ env.GKE_REGION }} \
+            --project ${{ env.PROJECT_ID }}
+
+      - name: Check Flink cluster status
+        run: |
+          echo "Checking Flink cluster status..."
+
+          # Check if JobManager is running
+          if ! kubectl get deployment flink-jobmanager -n ${{ env.NAMESPACE }} &>/dev/null; then
+            echo "❌ Flink JobManager not found!"
+            echo "Please deploy the Flink cluster first using 'Deploy Flink Cluster to GKE' workflow"
+            exit 1
+          fi
+
+          # Check if JobManager is ready
+          kubectl rollout status deployment/flink-jobmanager -n ${{ env.NAMESPACE }} --timeout=60s
+
+          echo "✅ Flink cluster is running"
+
+      - name: Update job configuration
+        run: |
+          # Update source type
+          sed -i "s|SOURCE_TYPE: \"PUBSUB\"|SOURCE_TYPE: \"${{ github.event.inputs.source_type }}\"|g" k8s/gke/flink-job-configmap.yaml
+
+          # Update image tag
+          if [ "${{ github.event.inputs.rebuild_image }}" = "true" ]; then
+            IMAGE_TAG="${{ github.sha }}"
+          else
+            IMAGE_TAG="latest"
+          fi
+
+          FLINK_IMAGE=${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:${IMAGE_TAG}
+          sed -i "s|image: us-central1-docker.pkg.dev/hsbc-484505/fraud-repo/flink-fraud-detection:latest|image: ${FLINK_IMAGE}|g" k8s/gke/flink/flink-job-submit.yaml
+
+      - name: Apply job configuration
+        run: kubectl apply -f k8s/gke/flink-job-configmap.yaml
+
+      - name: Cancel existing jobs (if any)
+        run: |
+          echo "Checking for existing Flink jobs..."
+
+          JM_POD=$(kubectl get pods -n ${{ env.NAMESPACE }} -l component=jobmanager -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+
+          if [ -n "$JM_POD" ]; then
+            # Get list of running jobs
+            JOBS=$(kubectl exec -n ${{ env.NAMESPACE }} ${JM_POD} -- curl -s http://localhost:8081/jobs 2>/dev/null | grep -o '"id":"[^"]*"' | sed 's/"id":"//;s/"//' || true)
+            
+            for JOB_ID in $JOBS; do
+              echo "Cancelling job: $JOB_ID"
+              kubectl exec -n ${{ env.NAMESPACE }} ${JM_POD} -- curl -X PATCH -s "http://localhost:8081/jobs/${JOB_ID}?mode=cancel" || true
+            done
+          fi
+
+      - name: Submit Flink Job
+        run: |
+          echo "Submitting Fraud Detection Job..."
+
+          # Delete previous submit job if exists
+          kubectl delete job flink-job-submit -n ${{ env.NAMESPACE }} --ignore-not-found=true
+
+          # Submit new job
+          kubectl apply -f k8s/gke/flink/flink-job-submit.yaml
+
+          # Wait for submission to complete
+          echo "Waiting for job submission..."
+          kubectl wait --for=condition=complete job/flink-job-submit -n ${{ env.NAMESPACE }} --timeout=180s || true
+
+          # Show submission logs
+          echo ""
+          echo "=== Job Submission Logs ==="
+          kubectl logs job/flink-job-submit -n ${{ env.NAMESPACE }} || true
+
+      - name: Verify job is running
+        run: |
+          echo ""
+          echo "============================================="
+          echo "  Verifying Flink Job Status"
+          echo "============================================="
+
+          JM_POD=$(kubectl get pods -n ${{ env.NAMESPACE }} -l component=jobmanager -o jsonpath='{.items[0].metadata.name}')
+
+          # Get running jobs
+          echo "=== Running Jobs ==="
+          kubectl exec -n ${{ env.NAMESPACE }} ${JM_POD} -- curl -s http://localhost:8081/jobs 2>/dev/null || echo "Could not fetch jobs"
+          echo ""
+
+          # Get cluster overview
+          echo "=== Cluster Overview ==="
+          kubectl exec -n ${{ env.NAMESPACE }} ${JM_POD} -- curl -s http://localhost:8081/overview 2>/dev/null || echo "Could not fetch overview"
+
+      - name: Summary
+        run: |
+          echo ""
+          echo "============================================="
+          echo "  Job Submission Complete!"
+          echo "============================================="
+          echo ""
+          echo "Configuration:"
+          echo "  - Source Type: ${{ github.event.inputs.source_type }}"
+          echo "  - Namespace: ${{ env.NAMESPACE }}"
+          echo "  - Image Rebuilt: ${{ github.event.inputs.rebuild_image }}"
+          echo ""
+          echo "Monitor with:"
+          echo "  kubectl port-forward svc/flink-jobmanager 8081:8081 -n ${{ env.NAMESPACE }}"
+          echo "  # Then open http://localhost:8081"
