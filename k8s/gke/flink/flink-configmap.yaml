@@ -26,7 +26,7 @@ data:
     taskmanager.memory.jvm-metaspace.size: 128m
 
     # Parallelism
-    parallelism.default: 2
+    parallelism.default: 1
 
     # High Availability (optional, requires ZooKeeper)
     # high-availability: zookeeper
