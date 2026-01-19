@@ -128,25 +128,48 @@ jobs:
             --region ${{ env.GKE_REGION }} \
             --project ${{ env.PROJECT_ID }}
 
-      - name: Verify GCP Service Account
+      - name: Setup GCP Service Account and Permissions
         run: |
           SA_NAME="transaction-producer"
           SA_EMAIL="${SA_NAME}@${{ env.PROJECT_ID }}.iam.gserviceaccount.com"
 
-          echo "Verifying service account exists: ${SA_EMAIL}"
-          if gcloud iam service-accounts describe ${SA_EMAIL} --project ${{ env.PROJECT_ID }} &>/dev/null; then
-            echo "✓ Service account ${SA_EMAIL} exists"
-          else
-            echo "⚠ Service account ${SA_EMAIL} not found, creating..."
+          echo "Checking service account: ${SA_EMAIL}"
+
+          # Create SA if not exists
+          if ! gcloud iam service-accounts describe ${SA_EMAIL} --project ${{ env.PROJECT_ID }} &>/dev/null; then
+            echo "Creating service account..."
             gcloud iam service-accounts create ${SA_NAME} \
               --display-name="Transaction Producer Service Account" \
-              --project ${{ env.PROJECT_ID }} || true
-            
-            # Grant Pub/Sub publisher permission
-            gcloud projects add-iam-policy-binding ${{ env.PROJECT_ID }} \
-              --member="serviceAccount:${SA_EMAIL}" \
-              --role="roles/pubsub.publisher" || true
+              --project ${{ env.PROJECT_ID }}
           fi
+
+          # Grant Pub/Sub publisher permission
+          echo "Granting Pub/Sub publisher permission..."
+          gcloud projects add-iam-policy-binding ${{ env.PROJECT_ID }} \
+            --member="serviceAccount:${SA_EMAIL}" \
+            --role="roles/pubsub.publisher" \
+            --condition=None 2>/dev/null || true
+
+          echo "✓ Service account ${SA_EMAIL} configured"
+
+      - name: Create Service Account Key and K8s Secret
+        run: |
+          SA_EMAIL="transaction-producer@${{ env.PROJECT_ID }}.iam.gserviceaccount.com"
+
+          echo "Creating service account key..."
+          gcloud iam service-accounts keys create /tmp/sa-key.json \
+            --iam-account=${SA_EMAIL}
+
+          echo "Creating/updating K8s secret..."
+          kubectl delete secret gcp-sa-key -n ${{ env.NAMESPACE }} --ignore-not-found=true
+          kubectl create secret generic gcp-sa-key \
+            --from-file=key.json=/tmp/sa-key.json \
+            --namespace=${{ env.NAMESPACE }}
+
+          # Clean up local key file
+          rm -f /tmp/sa-key.json
+
+          echo "✓ K8s secret 'gcp-sa-key' created"
 
       - name: Update ConfigMap
         run: |
