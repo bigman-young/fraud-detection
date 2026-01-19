@@ -6,8 +6,8 @@
 # Required GitHub Secrets:
 #   - GCP_PROJECT_ID: hsbc-484505
 #   - GCP_SA_KEY: Service account key JSON (base64 encoded)
-#   - GKE_CLUSTER: hsbc-cluster-1
-#   - GKE_REGION: asia-east1
+#   - GKE_CLUSTER: flink-cluster (for Flink Job)
+#   - GKE_REGION: asia-east1-a (for Flink Job)
 #
 # Optional Secrets:
 #   - SOURCE_TYPE: PUBSUB (default), KAFKA, or DEMO
