@@ -285,8 +285,8 @@ public class PubSubIntegrationTest {
         assertEquals(original.getAccountId(), deserialized.getAccountId());
         assertEquals(0, original.getAmount().compareTo(deserialized.getAmount()));
         assertEquals(original.getTransactionType(), deserialized.getTransactionType());
-        assertEquals(original.getSourceCountry(), deserialized.getSourceCountry());
-        assertEquals(original.getDestinationCountry(), deserialized.getDestinationCountry());
+        assertEquals(original.getCountryCode(), deserialized.getCountryCode());
+        assertEquals(original.getMerchantId(), deserialized.getMerchantId());
         
         LOG.info("Serialization/Deserialization test passed");
     }
@@ -316,11 +316,10 @@ public class PubSubIntegrationTest {
                 .accountId("ACC-TEST-" + UUID.randomUUID().toString().substring(0, 8))
                 .amount(new BigDecimal("1000.00"))
                 .transactionType(TransactionType.TRANSFER)
-                .sourceCountry("US")
-                .destinationCountry("GB")
+                .countryCode("US")
                 .timestamp(Instant.now())
                 .merchantId("MERCHANT-001")
-                .merchantCategory("RETAIL")
+                .channel("ONLINE")
                 .build();
     }
 }
