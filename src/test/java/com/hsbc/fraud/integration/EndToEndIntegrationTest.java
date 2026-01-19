@@ -154,8 +154,7 @@ public class EndToEndIntegrationTest {
                 .accountId("ACC-E2E-001")
                 .amount(new BigDecimal("15000.00")) // High value threshold is 10000
                 .transactionType(TransactionType.TRANSFER)
-                .sourceCountry("US")
-                .destinationCountry("GB")
+                .countryCode("GB")
                 .timestamp(Instant.now())
                 .build();
         
@@ -191,11 +190,10 @@ public class EndToEndIntegrationTest {
                 .accountId("ACC-E2E-002")
                 .amount(new BigDecimal("100.00")) // Normal amount
                 .transactionType(TransactionType.PAYMENT)
-                .sourceCountry("US")
-                .destinationCountry("US")
+                .countryCode("US")
                 .timestamp(Instant.now())
                 .merchantId("MERCHANT-001")
-                .merchantCategory("GROCERY")
+                .channel("POS")
                 .build();
         
         // Publish transaction
@@ -220,8 +218,7 @@ public class EndToEndIntegrationTest {
                 .accountId("FRAUD-ACC-001") // Suspicious account pattern
                 .amount(new BigDecimal("500.00"))
                 .transactionType(TransactionType.WITHDRAWAL)
-                .sourceCountry("US")
-                .destinationCountry("RU") // High-risk country
+                .countryCode("RU") // High-risk country
                 .timestamp(Instant.now())
                 .build();
         
@@ -247,8 +244,7 @@ public class EndToEndIntegrationTest {
                 .accountId("ACC-RT-001")
                 .amount(new BigDecimal("250.00"))
                 .transactionType(TransactionType.PAYMENT)
-                .sourceCountry("US")
-                .destinationCountry("US")
+                .countryCode("US")
                 .timestamp(Instant.now())
                 .build();
         
@@ -296,8 +292,7 @@ public class EndToEndIntegrationTest {
                 .accountId("ACC-ENGINE-001")
                 .amount(new BigDecimal("20000.00"))
                 .transactionType(TransactionType.TRANSFER)
-                .sourceCountry("US")
-                .destinationCountry("RU")
+                .countryCode("RU")
                 .timestamp(Instant.now())
                 .build();
         
