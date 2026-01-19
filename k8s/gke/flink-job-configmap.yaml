@@ -28,7 +28,7 @@ data:
   # ===========================================
   # Flink Configuration
   # ===========================================
-  PARALLELISM: "4"
+  PARALLELISM: "1"
   
   # ===========================================
   # Fraud Detection Configuration
