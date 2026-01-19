@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.google.api.core.ApiFuture;
+import com.google.cloud.pubsub.v1.MessageReceiver;
 import com.google.cloud.pubsub.v1.Publisher;
 import com.google.cloud.pubsub.v1.Subscriber;
 import com.google.cloud.pubsub.v1.SubscriptionAdminClient;
@@ -189,7 +190,7 @@ public class PubSubIntegrationTest {
         
         ProjectSubscriptionName subscriptionName = ProjectSubscriptionName.of(projectId, testSubscriptionId);
         
-        Subscriber subscriber = Subscriber.newBuilder(subscriptionName, (msg, consumer) -> {
+        MessageReceiver receiver = (msg, consumer) -> {
             try {
                 String data = msg.getData().toStringUtf8();
                 Transaction tx = objectMapper.readValue(data, Transaction.class);
@@ -200,7 +201,9 @@ public class PubSubIntegrationTest {
                 LOG.error("Error processing message", e);
                 consumer.nack();
             }
-        }).build();
+        };
+        
+        Subscriber subscriber = Subscriber.newBuilder(subscriptionName, receiver).build();
         
         subscriber.startAsync().awaitRunning();
         
@@ -249,12 +252,14 @@ public class PubSubIntegrationTest {
         
         ProjectSubscriptionName subscriptionName = ProjectSubscriptionName.of(projectId, testSubscriptionId);
         
-        Subscriber subscriber = Subscriber.newBuilder(subscriptionName, (msg, consumer) -> {
+        MessageReceiver batchReceiver = (msg, consumer) -> {
             consumer.ack();
             latch.countDown();
             LOG.info("Received message {}", msg.getAttributesMap().get("index"));
-        }).build();
+        };
         
+        Subscriber subscriber = Subscriber.newBuilder(subscriptionName, batchReceiver).build();
+
         subscriber.startAsync().awaitRunning();
         
         boolean allReceived = latch.await(60, TimeUnit.SECONDS);
