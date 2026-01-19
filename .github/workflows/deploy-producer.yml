@@ -178,6 +178,9 @@ jobs:
           # Create namespace if not exists
           kubectl apply -f k8s/gke/namespace.yaml
 
+          # Delete HPA if exists (we want single replica)
+          kubectl delete hpa transaction-producer-hpa -n ${{ env.NAMESPACE }} --ignore-not-found=true
+          
           # Apply configurations
           kubectl apply -f k8s/gke/configmap.yaml
           kubectl apply -f k8s/gke/workload-identity.yaml
