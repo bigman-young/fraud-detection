@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.google.api.core.ApiFuture;
+import com.google.cloud.pubsub.v1.MessageReceiver;
 import com.google.cloud.pubsub.v1.Publisher;
 import com.google.cloud.pubsub.v1.Subscriber;
 import com.google.cloud.pubsub.v1.SubscriptionAdminClient;
@@ -256,7 +257,7 @@ public class EndToEndIntegrationTest {
         
         // Set up subscriber
         ProjectSubscriptionName subName = ProjectSubscriptionName.of(projectId, transactionSubscriptionId);
-        Subscriber subscriber = Subscriber.newBuilder(subName, (msg, consumer) -> {
+        MessageReceiver messageReceiver = (msg, consumer) -> {
             try {
                 String data = msg.getData().toStringUtf8();
                 Transaction tx = objectMapper.readValue(data, Transaction.class);
@@ -266,7 +267,8 @@ public class EndToEndIntegrationTest {
             } catch (Exception e) {
                 consumer.nack();
             }
-        }).build();
+        };
+        Subscriber subscriber = Subscriber.newBuilder(subName, messageReceiver).build();
         
         subscriber.startAsync().awaitRunning();
         
