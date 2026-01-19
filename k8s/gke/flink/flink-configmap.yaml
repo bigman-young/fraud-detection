@@ -18,6 +18,7 @@ data:
     jobmanager.execution.failover-strategy: region
 
     # TaskManager configuration (2GB total)
+    taskmanager.rpc.port: 6122
     taskmanager.numberOfTaskSlots: 2
     taskmanager.memory.process.size: 2048m
     taskmanager.memory.jvm-overhead.min: 128m
