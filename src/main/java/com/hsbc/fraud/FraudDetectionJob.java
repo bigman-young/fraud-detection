@@ -99,7 +99,7 @@ public class FraudDetectionJob {
         env.enableCheckpointing(60000); // Checkpoint every 60 seconds
         
         // Set parallelism based on environment
-        int parallelism = Integer.parseInt(getEnvOrDefault("PARALLELISM", "4"));
+        int parallelism = Integer.parseInt(getEnvOrDefault("PARALLELISM", "1"));
         env.setParallelism(parallelism);
 
         LOG.info("Environment configured with parallelism: {}", parallelism);
