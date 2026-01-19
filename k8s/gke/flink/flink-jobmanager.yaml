@@ -103,14 +103,18 @@ spec:
           livenessProbe:
             tcpSocket:
               port: 6123
-            initialDelaySeconds: 30
-            periodSeconds: 60
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
           readinessProbe:
             httpGet:
               path: /overview
               port: 8081
-            initialDelaySeconds: 30
-            periodSeconds: 10
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 10
       volumes:
         - name: flink-config-volume
           configMap:
