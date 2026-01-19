@@ -1,5 +1,7 @@
 package com.hsbc.fraud.integration;
 
+import com.google.api.gax.paging.Page;
+import com.google.cloud.MonitoredResource;
 import com.google.cloud.logging.*;
 import com.hsbc.fraud.model.*;
 import com.hsbc.fraud.sink.AlertSink;
@@ -321,8 +323,7 @@ public class LoggingIntegrationTest {
                 .accountId("ACC-TEST-" + UUID.randomUUID().toString().substring(0, 8))
                 .amount(new BigDecimal("5000.00"))
                 .transactionType(TransactionType.TRANSFER)
-                .sourceCountry("US")
-                .destinationCountry("RU")
+                .countryCode("RU")
                 .timestamp(Instant.now())
                 .build();
         
