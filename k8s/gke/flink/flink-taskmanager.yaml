@@ -33,6 +33,7 @@ spec:
               value: |
                 jobmanager.rpc.address: flink-jobmanager
                 taskmanager.rpc.port: 6122
+                taskmanager.bind-host: 0.0.0.0
                 taskmanager.numberOfTaskSlots: 2
                 taskmanager.memory.process.size: 2048m
                 taskmanager.memory.jvm-overhead.min: 128m
