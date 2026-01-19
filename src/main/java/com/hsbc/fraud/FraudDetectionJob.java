@@ -125,16 +125,16 @@ public class FraudDetectionJob {
         // Process transactions
         DataStream<FraudAlert> alerts = processTransactions(transactions, alertThreshold);
 
+        // Output alerts to Pub/Sub
+        alerts.addSink(new AlertSink.PubSubSink(projectId, alertTopic))
+              .name("Pub/Sub Alert Sink");
+        
         // Output alerts to log (Pub/Sub sink can be added later if needed)
         alerts.addSink(new AlertSink.LoggingSink())
               .name("Logging Sink");
 
         // Print to console for monitoring
         alerts.print().name("Console Output");
-
-        // TODO: Add Pub/Sub sink for alerts if needed
-        // alerts.addSink(new PubSubAlertSink(projectId, alertTopic))
-        //       .name("Pub/Sub Alert Sink");
     }
 
     /**
