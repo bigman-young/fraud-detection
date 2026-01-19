@@ -152,16 +152,17 @@ jobs:
 
           echo "✓ Service account ${SA_EMAIL} configured"
 
-      - name: Create Service Account Key and K8s Secret
+      - name: Create K8s Secret from GitHub Secret
         run: |
-          SA_EMAIL="transaction-producer@${{ env.PROJECT_ID }}.iam.gserviceaccount.com"
+          echo "Creating K8s secret from GitHub Secret..."
 
-          echo "Creating service account key..."
-          gcloud iam service-accounts keys create /tmp/sa-key.json \
-            --iam-account=${SA_EMAIL}
+          # Decode the base64 encoded service account key
+          echo '${{ secrets.PRODUCER_SA_KEY }}' | base64 -d > /tmp/sa-key.json
 
-          echo "Creating/updating K8s secret..."
+          # Delete existing secret if exists
           kubectl delete secret gcp-sa-key -n ${{ env.NAMESPACE }} --ignore-not-found=true
+
+          # Create new secret
           kubectl create secret generic gcp-sa-key \
             --from-file=key.json=/tmp/sa-key.json \
             --namespace=${{ env.NAMESPACE }}
@@ -169,7 +170,7 @@ jobs:
           # Clean up local key file
           rm -f /tmp/sa-key.json
 
-          echo "✓ K8s secret 'gcp-sa-key' created"
+          echo "✓ K8s secret 'gcp-sa-key' created from GitHub Secret"
 
       - name: Update ConfigMap
         run: |
