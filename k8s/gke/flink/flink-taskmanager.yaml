@@ -41,6 +41,8 @@ spec:
                 taskmanager.memory.jvm-metaspace.size: 128m
             - name: GOOGLE_CLOUD_PROJECT
               value: "hsbc-484505"
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: "/var/secrets/google/key.json"
           volumeMounts:
             - name: flink-config-volume
               mountPath: /opt/flink/conf/flink-conf.yaml
@@ -50,6 +52,9 @@ spec:
               subPath: log4j-console.properties
             - name: job-artifacts
               mountPath: /opt/flink/usrlib
+            - name: gcp-sa-key
+              mountPath: /var/secrets/google
+              readOnly: true              
           resources:
             requests:
               memory: "1536Mi"
@@ -77,6 +82,9 @@ spec:
             name: flink-config
         - name: job-artifacts
           emptyDir: {}
+        - name: gcp-sa-key
+          secret:
+            secretName: flink-gcp-sa-key
       # Init container to download job JAR
       initContainers:
         - name: download-job-jar
