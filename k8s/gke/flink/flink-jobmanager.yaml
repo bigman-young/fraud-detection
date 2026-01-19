@@ -78,10 +78,13 @@ spec:
               value: |
                 jobmanager.rpc.address: flink-jobmanager
                 jobmanager.rpc.port: 6123
+                jobmanager.bind-host: 0.0.0.0
                 jobmanager.memory.process.size: 1024m
                 jobmanager.memory.jvm-overhead.min: 64m
                 jobmanager.memory.jvm-overhead.max: 128m
                 jobmanager.memory.jvm-metaspace.size: 128m
+                blob.server.port: 6124
+                blob.server.bind-host: 0.0.0.0
             - name: GOOGLE_CLOUD_PROJECT
               value: "hsbc-484505"
           volumeMounts:
