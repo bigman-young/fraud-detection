@@ -24,13 +24,17 @@ spec:
             # GCP Project ID - REQUIRED
             - name: GOOGLE_CLOUD_PROJECT
               value: "hsbc-484505"
-              #valueFrom:
-              #  fieldRef:
-              #    fieldPath: metadata.namespace
+            # Service Account Key for authentication
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: "/var/secrets/google/key.json"
           
           envFrom:
             - configMapRef:
                 name: producer-config
+          volumeMounts:
+            - name: gcp-sa-key
+              mountPath: /var/secrets/google
+              readOnly: true
           resources:
             requests:
               memory: "256Mi"
@@ -49,6 +53,10 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 3
+      volumes:
+        - name: gcp-sa-key
+          secret:
+            secretName: gcp-sa-key
       # Optional: Node selector for specific node pools
       # nodeSelector:
       #   cloud.google.com/gke-nodepool: producer-pool
