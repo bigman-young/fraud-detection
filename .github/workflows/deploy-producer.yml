@@ -1,0 +1,230 @@
+# GitHub Actions workflow for deploying Transaction Producer to GKE
+#
+# Deploys the Pub/Sub Transaction Producer to the Flink cluster.
+# This producer generates simulated transaction data and publishes to Pub/Sub.
+#
+# Required GitHub Secrets:
+#   - GCP_PROJECT_ID: hsbc-484505
+#   - GCP_SA_KEY: Service account key JSON (base64 encoded)
+
+name: Deploy Transaction Producer
+
+on:
+  workflow_dispatch:
+    inputs:
+      transactions_per_second:
+        description: "Transactions per second"
+        required: false
+        default: "10"
+        type: string
+      fraud_percentage:
+        description: "Percentage of fraudulent transactions (0-100)"
+        required: false
+        default: "5"
+        type: string
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  # Deploy to same cluster as Flink
+  GKE_CLUSTER: flink-cluster
+  GKE_REGION: asia-east1-a
+  IMAGE_NAME: transaction-producer
+  DEPLOYMENT_NAME: transaction-producer
+  NAMESPACE: fraud
+  ARTIFACT_REGISTRY: us-central1-docker.pkg.dev
+  REPOSITORY: fraud-repo
+
+jobs:
+  # Job 1: Build
+  build:
+    name: Build and Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          cache: maven
+
+      - name: Build with Maven
+        run: mvn clean package -DskipTests -B
+
+      - name: Run Tests
+        run: mvn test -B
+
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: producer-jar
+          path: target/*.jar
+          retention-days: 1
+
+  # Job 2: Build and Push Docker Image
+  docker:
+    name: Build Docker Image
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download JAR artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: producer-jar
+          path: target/
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.ARTIFACT_REGISTRY }} --quiet
+
+      - name: Build and Push Docker image
+        run: |
+          IMAGE=${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          docker build -f Dockerfile.producer -t $IMAGE .
+          docker tag $IMAGE ${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:latest
+          docker push $IMAGE
+          docker push ${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:latest
+
+  # Job 3: Deploy to GKE
+  deploy:
+    name: Deploy to GKE
+    needs: docker
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+          install_components: "gke-gcloud-auth-plugin"
+
+      - name: Get GKE credentials
+        run: |
+          gcloud container clusters get-credentials ${{ env.GKE_CLUSTER }} \
+            --region ${{ env.GKE_REGION }} \
+            --project ${{ env.PROJECT_ID }}
+
+      - name: Verify GCP Service Account
+        run: |
+          SA_NAME="transaction-producer"
+          SA_EMAIL="${SA_NAME}@${{ env.PROJECT_ID }}.iam.gserviceaccount.com"
+
+          echo "Verifying service account exists: ${SA_EMAIL}"
+          if gcloud iam service-accounts describe ${SA_EMAIL} --project ${{ env.PROJECT_ID }} &>/dev/null; then
+            echo "✓ Service account ${SA_EMAIL} exists"
+          else
+            echo "⚠ Service account ${SA_EMAIL} not found, creating..."
+            gcloud iam service-accounts create ${SA_NAME} \
+              --display-name="Transaction Producer Service Account" \
+              --project ${{ env.PROJECT_ID }} || true
+            
+            # Grant Pub/Sub publisher permission
+            gcloud projects add-iam-policy-binding ${{ env.PROJECT_ID }} \
+              --member="serviceAccount:${SA_EMAIL}" \
+              --role="roles/pubsub.publisher" || true
+          fi
+
+      - name: Update ConfigMap
+        run: |
+          # Update producer config with workflow inputs
+          cat > k8s/gke/configmap.yaml << EOF
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: producer-config
+            namespace: ${{ env.NAMESPACE }}
+            labels:
+              app: transaction-producer
+          data:
+            PUBSUB_TOPIC: "transactions"
+            TRANSACTIONS_PER_SECOND: "${{ github.event.inputs.transactions_per_second || '10' }}"
+            FRAUD_PERCENTAGE: "${{ github.event.inputs.fraud_percentage || '5' }}"
+            LOG_LEVEL: "INFO"
+          EOF
+
+      - name: Update deployment manifest
+        run: |
+          # Update image reference
+          sed -i "s|gcr.io/hsbc-484505/transaction-producer:latest|${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}|g" k8s/gke/deployment.yaml
+
+      - name: Deploy to GKE
+        run: |
+          echo "Deploying Transaction Producer to ${{ env.GKE_CLUSTER }}..."
+
+          # Create namespace if not exists
+          kubectl apply -f k8s/gke/namespace.yaml
+
+          # Apply configurations
+          kubectl apply -f k8s/gke/configmap.yaml
+          kubectl apply -f k8s/gke/workload-identity.yaml
+          kubectl apply -f k8s/gke/deployment.yaml
+
+          # Force rollout to use new image
+          kubectl rollout restart deployment/${{ env.DEPLOYMENT_NAME }} -n ${{ env.NAMESPACE }}
+
+      - name: Wait for deployment
+        run: |
+          kubectl rollout status deployment/${{ env.DEPLOYMENT_NAME }} \
+            -n ${{ env.NAMESPACE }} \
+            --timeout=180s
+
+      - name: Get deployment status
+        run: |
+          echo "============================================="
+          echo "  Transaction Producer Deployment Status"
+          echo "============================================="
+          echo ""
+          echo "=== Deployment ==="
+          kubectl get deployment ${{ env.DEPLOYMENT_NAME }} -n ${{ env.NAMESPACE }}
+          echo ""
+          echo "=== Pods ==="
+          kubectl get pods -n ${{ env.NAMESPACE }} -l app=${{ env.DEPLOYMENT_NAME }}
+          echo ""
+          echo "=== ConfigMap ==="
+          kubectl get configmap producer-config -n ${{ env.NAMESPACE }} -o yaml | grep -A 10 "data:"
+          echo ""
+          echo "=== Recent Logs ==="
+          kubectl logs deployment/${{ env.DEPLOYMENT_NAME }} -n ${{ env.NAMESPACE }} --tail=20 || true
+
+      - name: Summary
+        run: |
+          echo ""
+          echo "============================================="
+          echo "  Deployment Complete!"
+          echo "============================================="
+          echo ""
+          echo "Configuration:"
+          echo "  - Cluster: ${{ env.GKE_CLUSTER }}"
+          echo "  - Namespace: ${{ env.NAMESPACE }}"
+          echo "  - Transactions/sec: ${{ github.event.inputs.transactions_per_second || '10' }}"
+          echo "  - Fraud percentage: ${{ github.event.inputs.fraud_percentage || '5' }}%"
+          echo ""
+          echo "Monitor with:"
+          echo "  kubectl logs -f deployment/${{ env.DEPLOYMENT_NAME }} -n ${{ env.NAMESPACE }}"
+          echo ""
+          echo "Check Pub/Sub messages:"
+          echo "  gcloud pubsub subscriptions pull transactions-sub --limit=5 --project=${{ env.PROJECT_ID }}"
