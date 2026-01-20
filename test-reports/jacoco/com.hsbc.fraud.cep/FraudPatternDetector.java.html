@@ -1,0 +1,254 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>FraudPatternDetector.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Real-Time Fraud Detection System</a> &gt; <a href="index.source.html" class="el_package">com.hsbc.fraud.cep</a> &gt; <span class="el_source">FraudPatternDetector.java</span></div><h1>FraudPatternDetector.java</h1><pre class="source lang-java linenums">package com.hsbc.fraud.cep;
+
+import com.hsbc.fraud.model.*;
+import org.apache.flink.cep.CEP;
+import org.apache.flink.cep.PatternSelectFunction;
+import org.apache.flink.cep.PatternStream;
+import org.apache.flink.cep.pattern.Pattern;
+import org.apache.flink.cep.pattern.conditions.SimpleCondition;
+import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.windowing.time.Time;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Complex Event Processing (CEP) based fraud pattern detector.
+ * Uses Flink CEP to detect complex fraud patterns across multiple transactions.
+ */
+<span class="nc" id="L22">public class FraudPatternDetector {</span>
+
+<span class="nc" id="L24">    private static final Logger LOG = LoggerFactory.getLogger(FraudPatternDetector.class);</span>
+
+    /**
+     * Detects rapid small transactions followed by a large transaction.
+     * This pattern is common in testing stolen cards before making large purchases.
+     */
+    public static DataStream&lt;FraudAlert&gt; detectSmallThenLargePattern(
+            DataStream&lt;Transaction&gt; transactions) {
+
+<span class="nc" id="L33">        Pattern&lt;Transaction, ?&gt; pattern = Pattern.&lt;Transaction&gt;begin(&quot;small&quot;)</span>
+<span class="nc" id="L34">                .where(new SimpleCondition&lt;Transaction&gt;() {</span>
+                    @Override
+                    public boolean filter(Transaction tx) {
+<span class="nc bnc" id="L37" title="All 2 branches missed.">                        return tx.getAmount() != null &amp;&amp; </span>
+<span class="nc bnc" id="L38" title="All 2 branches missed.">                               tx.getAmount().compareTo(new BigDecimal(&quot;50&quot;)) &lt; 0;</span>
+                    }
+                })
+<span class="nc" id="L41">                .timesOrMore(3)</span>
+<span class="nc" id="L42">                .within(Time.minutes(5))</span>
+<span class="nc" id="L43">                .followedBy(&quot;large&quot;)</span>
+<span class="nc" id="L44">                .where(new SimpleCondition&lt;Transaction&gt;() {</span>
+                    @Override
+                    public boolean filter(Transaction tx) {
+<span class="nc bnc" id="L47" title="All 2 branches missed.">                        return tx.getAmount() != null &amp;&amp; </span>
+<span class="nc bnc" id="L48" title="All 2 branches missed.">                               tx.getAmount().compareTo(new BigDecimal(&quot;1000&quot;)) &gt;= 0;</span>
+                    }
+                });
+
+<span class="nc" id="L52">        PatternStream&lt;Transaction&gt; patternStream = CEP.pattern(</span>
+<span class="nc" id="L53">                transactions.keyBy(Transaction::getAccountId), </span>
+                pattern
+        );
+
+<span class="nc" id="L57">        return patternStream.select(new PatternSelectFunction&lt;Transaction, FraudAlert&gt;() {</span>
+            @Override
+            public FraudAlert select(Map&lt;String, List&lt;Transaction&gt;&gt; pattern) {
+<span class="nc" id="L60">                List&lt;Transaction&gt; smallTransactions = pattern.get(&quot;small&quot;);</span>
+<span class="nc" id="L61">                Transaction largeTransaction = pattern.get(&quot;large&quot;).get(0);</span>
+
+<span class="nc" id="L63">                return FraudAlert.builder()</span>
+<span class="nc" id="L64">                        .transaction(largeTransaction)</span>
+<span class="nc" id="L65">                        .alertType(AlertType.UNUSUAL_PATTERN)</span>
+<span class="nc" id="L66">                        .severity(AlertSeverity.HIGH)</span>
+<span class="nc" id="L67">                        .riskScore(0.85)</span>
+<span class="nc" id="L68">                        .addTriggeredRule(&quot;SMALL_THEN_LARGE_PATTERN&quot;)</span>
+<span class="nc" id="L69">                        .description(String.format(</span>
+                                &quot;Pattern detected: %d small transactions followed by large transaction of %s %s&quot;,
+<span class="nc" id="L71">                                smallTransactions.size(),</span>
+<span class="nc" id="L72">                                largeTransaction.getAmount(),</span>
+<span class="nc" id="L73">                                largeTransaction.getCurrency()))</span>
+<span class="nc" id="L74">                        .status(AlertStatus.NEW)</span>
+<span class="nc" id="L75">                        .build();</span>
+            }
+        });
+    }
+
+    /**
+     * Detects transactions from multiple countries in a short time period.
+     * This is physically impossible and indicates compromised credentials.
+     */
+    public static DataStream&lt;FraudAlert&gt; detectMultiCountryPattern(
+            DataStream&lt;Transaction&gt; transactions) {
+
+<span class="nc" id="L87">        Pattern&lt;Transaction, ?&gt; pattern = Pattern.&lt;Transaction&gt;begin(&quot;first&quot;)</span>
+<span class="nc" id="L88">                .where(new SimpleCondition&lt;Transaction&gt;() {</span>
+                    @Override
+                    public boolean filter(Transaction tx) {
+<span class="nc bnc" id="L91" title="All 2 branches missed.">                        return tx.getCountryCode() != null;</span>
+                    }
+                })
+<span class="nc" id="L94">                .followedBy(&quot;second&quot;)</span>
+<span class="nc" id="L95">                .where(new SimpleCondition&lt;Transaction&gt;() {</span>
+                    @Override
+                    public boolean filter(Transaction tx) {
+<span class="nc bnc" id="L98" title="All 2 branches missed.">                        return tx.getCountryCode() != null;</span>
+                    }
+                })
+<span class="nc" id="L101">                .within(Time.minutes(10));</span>
+
+<span class="nc" id="L103">        PatternStream&lt;Transaction&gt; patternStream = CEP.pattern(</span>
+<span class="nc" id="L104">                transactions.keyBy(Transaction::getAccountId),</span>
+                pattern
+        );
+
+<span class="nc" id="L108">        return patternStream.select(new PatternSelectFunction&lt;Transaction, FraudAlert&gt;() {</span>
+            @Override
+            public FraudAlert select(Map&lt;String, List&lt;Transaction&gt;&gt; pattern) {
+<span class="nc" id="L111">                Transaction first = pattern.get(&quot;first&quot;).get(0);</span>
+<span class="nc" id="L112">                Transaction second = pattern.get(&quot;second&quot;).get(0);</span>
+
+                // Only alert if countries are different
+<span class="nc bnc" id="L115" title="All 2 branches missed.">                if (first.getCountryCode().equals(second.getCountryCode())) {</span>
+<span class="nc" id="L116">                    return null;</span>
+                }
+
+<span class="nc" id="L119">                return FraudAlert.builder()</span>
+<span class="nc" id="L120">                        .transaction(second)</span>
+<span class="nc" id="L121">                        .alertType(AlertType.GEOGRAPHIC_ANOMALY)</span>
+<span class="nc" id="L122">                        .severity(AlertSeverity.CRITICAL)</span>
+<span class="nc" id="L123">                        .riskScore(0.95)</span>
+<span class="nc" id="L124">                        .addTriggeredRule(&quot;MULTI_COUNTRY_PATTERN&quot;)</span>
+<span class="nc" id="L125">                        .description(String.format(</span>
+                                &quot;Impossible travel detected: transaction from %s followed by %s within 10 minutes&quot;,
+<span class="nc" id="L127">                                first.getCountryCode(),</span>
+<span class="nc" id="L128">                                second.getCountryCode()))</span>
+<span class="nc" id="L129">                        .status(AlertStatus.NEW)</span>
+<span class="nc" id="L130">                        .build();</span>
+            }
+<span class="nc bnc" id="L132" title="All 2 branches missed.">        }).filter(alert -&gt; alert != null);</span>
+    }
+
+    /**
+     * Detects multiple failed transactions followed by a successful one.
+     * Common pattern when fraudsters are guessing card details.
+     */
+    public static DataStream&lt;FraudAlert&gt; detectRepeatedAmountPattern(
+            DataStream&lt;Transaction&gt; transactions) {
+
+<span class="nc" id="L142">        Pattern&lt;Transaction, ?&gt; pattern = Pattern.&lt;Transaction&gt;begin(&quot;repeated&quot;)</span>
+<span class="nc" id="L143">                .where(new SimpleCondition&lt;Transaction&gt;() {</span>
+                    @Override
+                    public boolean filter(Transaction tx) {
+<span class="nc bnc" id="L146" title="All 2 branches missed.">                        return tx.getAmount() != null;</span>
+                    }
+                })
+<span class="nc" id="L149">                .timesOrMore(3)</span>
+<span class="nc" id="L150">                .consecutive()</span>
+<span class="nc" id="L151">                .within(Time.minutes(2));</span>
+
+<span class="nc" id="L153">        PatternStream&lt;Transaction&gt; patternStream = CEP.pattern(</span>
+<span class="nc" id="L154">                transactions.keyBy(Transaction::getAccountId),</span>
+                pattern
+        );
+
+<span class="nc" id="L158">        return patternStream.select(new PatternSelectFunction&lt;Transaction, FraudAlert&gt;() {</span>
+            @Override
+            public FraudAlert select(Map&lt;String, List&lt;Transaction&gt;&gt; pattern) {
+<span class="nc" id="L161">                List&lt;Transaction&gt; repeatedTx = pattern.get(&quot;repeated&quot;);</span>
+                
+                // Check if amounts are all the same (suspicious pattern)
+<span class="nc" id="L164">                BigDecimal firstAmount = repeatedTx.get(0).getAmount();</span>
+<span class="nc" id="L165">                boolean allSameAmount = repeatedTx.stream()</span>
+<span class="nc bnc" id="L166" title="All 2 branches missed.">                        .allMatch(tx -&gt; tx.getAmount().compareTo(firstAmount) == 0);</span>
+
+<span class="nc bnc" id="L168" title="All 2 branches missed.">                if (!allSameAmount) {</span>
+<span class="nc" id="L169">                    return null;</span>
+                }
+
+<span class="nc" id="L172">                Transaction lastTx = repeatedTx.get(repeatedTx.size() - 1);</span>
+
+<span class="nc" id="L174">                return FraudAlert.builder()</span>
+<span class="nc" id="L175">                        .transaction(lastTx)</span>
+<span class="nc" id="L176">                        .alertType(AlertType.UNUSUAL_PATTERN)</span>
+<span class="nc" id="L177">                        .severity(AlertSeverity.MEDIUM)</span>
+<span class="nc" id="L178">                        .riskScore(0.65)</span>
+<span class="nc" id="L179">                        .addTriggeredRule(&quot;REPEATED_AMOUNT_PATTERN&quot;)</span>
+<span class="nc" id="L180">                        .description(String.format(</span>
+                                &quot;Repeated same amount transactions detected: %d transactions of %s %s&quot;,
+<span class="nc" id="L182">                                repeatedTx.size(),</span>
+                                firstAmount,
+<span class="nc" id="L184">                                lastTx.getCurrency()))</span>
+<span class="nc" id="L185">                        .status(AlertStatus.NEW)</span>
+<span class="nc" id="L186">                        .build();</span>
+            }
+<span class="nc bnc" id="L188" title="All 2 branches missed.">        }).filter(alert -&gt; alert != null);</span>
+    }
+
+    /**
+     * Detects gradual increase in transaction amounts.
+     * Pattern used to test account limits.
+     */
+    public static DataStream&lt;FraudAlert&gt; detectIncreasingAmountPattern(
+            DataStream&lt;Transaction&gt; transactions) {
+
+<span class="nc" id="L198">        Pattern&lt;Transaction, ?&gt; pattern = Pattern.&lt;Transaction&gt;begin(&quot;increasing&quot;)</span>
+<span class="nc" id="L199">                .where(new SimpleCondition&lt;Transaction&gt;() {</span>
+                    @Override
+                    public boolean filter(Transaction tx) {
+<span class="nc bnc" id="L202" title="All 2 branches missed.">                        return tx.getAmount() != null;</span>
+                    }
+                })
+<span class="nc" id="L205">                .timesOrMore(4)</span>
+<span class="nc" id="L206">                .within(Time.hours(1));</span>
+
+<span class="nc" id="L208">        PatternStream&lt;Transaction&gt; patternStream = CEP.pattern(</span>
+<span class="nc" id="L209">                transactions.keyBy(Transaction::getAccountId),</span>
+                pattern
+        );
+
+<span class="nc" id="L213">        return patternStream.select(new PatternSelectFunction&lt;Transaction, FraudAlert&gt;() {</span>
+            @Override
+            public FraudAlert select(Map&lt;String, List&lt;Transaction&gt;&gt; pattern) {
+<span class="nc" id="L216">                List&lt;Transaction&gt; txList = pattern.get(&quot;increasing&quot;);</span>
+
+                // Check if amounts are consistently increasing
+<span class="nc" id="L219">                boolean isIncreasing = true;</span>
+<span class="nc bnc" id="L220" title="All 2 branches missed.">                for (int i = 1; i &lt; txList.size(); i++) {</span>
+<span class="nc bnc" id="L221" title="All 2 branches missed.">                    if (txList.get(i).getAmount().compareTo(txList.get(i - 1).getAmount()) &lt;= 0) {</span>
+<span class="nc" id="L222">                        isIncreasing = false;</span>
+<span class="nc" id="L223">                        break;</span>
+                    }
+                }
+
+<span class="nc bnc" id="L227" title="All 2 branches missed.">                if (!isIncreasing) {</span>
+<span class="nc" id="L228">                    return null;</span>
+                }
+
+<span class="nc" id="L231">                Transaction lastTx = txList.get(txList.size() - 1);</span>
+<span class="nc" id="L232">                BigDecimal totalAmount = txList.stream()</span>
+<span class="nc" id="L233">                        .map(Transaction::getAmount)</span>
+<span class="nc" id="L234">                        .reduce(BigDecimal.ZERO, BigDecimal::add);</span>
+
+<span class="nc" id="L236">                return FraudAlert.builder()</span>
+<span class="nc" id="L237">                        .transaction(lastTx)</span>
+<span class="nc" id="L238">                        .alertType(AlertType.UNUSUAL_PATTERN)</span>
+<span class="nc" id="L239">                        .severity(AlertSeverity.MEDIUM)</span>
+<span class="nc" id="L240">                        .riskScore(0.6)</span>
+<span class="nc" id="L241">                        .addTriggeredRule(&quot;INCREASING_AMOUNT_PATTERN&quot;)</span>
+<span class="nc" id="L242">                        .description(String.format(</span>
+                                &quot;Increasing amount pattern detected: %d transactions totaling %s %s&quot;,
+<span class="nc" id="L244">                                txList.size(),</span>
+                                totalAmount,
+<span class="nc" id="L246">                                lastTx.getCurrency()))</span>
+<span class="nc" id="L247">                        .status(AlertStatus.NEW)</span>
+<span class="nc" id="L248">                        .build();</span>
+            }
+<span class="nc bnc" id="L250" title="All 2 branches missed.">        }).filter(alert -&gt; alert != null);</span>
+    }
+}
+
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

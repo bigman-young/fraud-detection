@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SuspiciousAccountRule.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Real-Time Fraud Detection System</a> &gt; <a href="index.source.html" class="el_package">com.hsbc.fraud.rules.impl</a> &gt; <span class="el_source">SuspiciousAccountRule.java</span></div><h1>SuspiciousAccountRule.java</h1><pre class="source lang-java linenums">package com.hsbc.fraud.rules.impl;
+
+import com.hsbc.fraud.model.AlertType;
+import com.hsbc.fraud.model.Transaction;
+import com.hsbc.fraud.rules.FraudRule;
+import com.hsbc.fraud.rules.RuleResult;
+
+import java.util.HashSet;
+import java.util.Optional;
+import java.util.Set;
+
+/**
+ * Rule to detect transactions involving suspicious/blacklisted accounts.
+ * Maintains a set of suspicious account IDs that are flagged.
+ */
+public class SuspiciousAccountRule implements FraudRule {
+
+    private static final long serialVersionUID = 1L;
+
+    private final Set&lt;String&gt; suspiciousAccounts;
+    private final Set&lt;String&gt; blacklistedAccounts;
+
+<span class="fc" id="L23">    public SuspiciousAccountRule() {</span>
+<span class="fc" id="L24">        this.suspiciousAccounts = new HashSet&lt;&gt;();</span>
+<span class="fc" id="L25">        this.blacklistedAccounts = new HashSet&lt;&gt;();</span>
+<span class="fc" id="L26">        initializeDefaultLists();</span>
+<span class="fc" id="L27">    }</span>
+
+<span class="fc" id="L29">    public SuspiciousAccountRule(Set&lt;String&gt; suspiciousAccounts, Set&lt;String&gt; blacklistedAccounts) {</span>
+<span class="fc" id="L30">        this.suspiciousAccounts = new HashSet&lt;&gt;(suspiciousAccounts);</span>
+<span class="fc" id="L31">        this.blacklistedAccounts = new HashSet&lt;&gt;(blacklistedAccounts);</span>
+<span class="fc" id="L32">    }</span>
+
+    private void initializeDefaultLists() {
+        // Sample suspicious accounts for demonstration
+<span class="fc" id="L36">        suspiciousAccounts.add(&quot;SUSP-001&quot;);</span>
+<span class="fc" id="L37">        suspiciousAccounts.add(&quot;SUSP-002&quot;);</span>
+<span class="fc" id="L38">        suspiciousAccounts.add(&quot;WATCH-001&quot;);</span>
+        
+        // Sample blacklisted accounts
+<span class="fc" id="L41">        blacklistedAccounts.add(&quot;BLACK-001&quot;);</span>
+<span class="fc" id="L42">        blacklistedAccounts.add(&quot;BLACK-002&quot;);</span>
+<span class="fc" id="L43">        blacklistedAccounts.add(&quot;FRAUD-001&quot;);</span>
+<span class="fc" id="L44">    }</span>
+
+    @Override
+    public String getRuleName() {
+<span class="fc" id="L48">        return &quot;SUSPICIOUS_ACCOUNT&quot;;</span>
+    }
+
+    @Override
+    public String getDescription() {
+<span class="nc" id="L53">        return &quot;Detects transactions involving suspicious or blacklisted accounts&quot;;</span>
+    }
+
+    @Override
+    public Optional&lt;RuleResult&gt; evaluate(Transaction transaction) {
+<span class="fc bfc" id="L58" title="All 2 branches covered.">        if (transaction == null) {</span>
+<span class="fc" id="L59">            return Optional.empty();</span>
+        }
+
+<span class="fc" id="L62">        String sourceAccount = transaction.getAccountId();</span>
+<span class="fc" id="L63">        String targetAccount = transaction.getTargetAccountId();</span>
+
+        // Check blacklisted accounts first (highest risk)
+<span class="fc bfc" id="L66" title="All 2 branches covered.">        if (isBlacklisted(sourceAccount)) {</span>
+<span class="fc" id="L67">            return Optional.of(new RuleResult(</span>
+<span class="fc" id="L68">                    getRuleName(),</span>
+                    AlertType.SUSPICIOUS_ACCOUNT,
+                    0.95,
+<span class="fc" id="L71">                    String.format(&quot;Source account %s is BLACKLISTED&quot;, sourceAccount)</span>
+            ));
+        }
+
+<span class="fc bfc" id="L75" title="All 2 branches covered.">        if (isBlacklisted(targetAccount)) {</span>
+<span class="fc" id="L76">            return Optional.of(new RuleResult(</span>
+<span class="fc" id="L77">                    getRuleName(),</span>
+                    AlertType.SUSPICIOUS_ACCOUNT,
+                    0.95,
+<span class="fc" id="L80">                    String.format(&quot;Target account %s is BLACKLISTED&quot;, targetAccount)</span>
+            ));
+        }
+
+        // Check suspicious accounts
+<span class="fc bfc" id="L85" title="All 2 branches covered.">        if (isSuspicious(sourceAccount)) {</span>
+<span class="fc" id="L86">            return Optional.of(new RuleResult(</span>
+<span class="fc" id="L87">                    getRuleName(),</span>
+                    AlertType.SUSPICIOUS_ACCOUNT,
+                    0.7,
+<span class="fc" id="L90">                    String.format(&quot;Source account %s is flagged as SUSPICIOUS&quot;, sourceAccount)</span>
+            ));
+        }
+
+<span class="fc bfc" id="L94" title="All 2 branches covered.">        if (isSuspicious(targetAccount)) {</span>
+<span class="fc" id="L95">            return Optional.of(new RuleResult(</span>
+<span class="fc" id="L96">                    getRuleName(),</span>
+                    AlertType.SUSPICIOUS_ACCOUNT,
+                    0.7,
+<span class="fc" id="L99">                    String.format(&quot;Target account %s is flagged as SUSPICIOUS&quot;, targetAccount)</span>
+            ));
+        }
+
+<span class="fc" id="L103">        return Optional.empty();</span>
+    }
+
+    @Override
+    public int getPriority() {
+<span class="fc" id="L108">        return 90;</span>
+    }
+
+    public boolean isSuspicious(String accountId) {
+<span class="fc bfc" id="L112" title="All 4 branches covered.">        return accountId != null &amp;&amp; suspiciousAccounts.contains(accountId);</span>
+    }
+
+    public boolean isBlacklisted(String accountId) {
+<span class="fc bfc" id="L116" title="All 4 branches covered.">        return accountId != null &amp;&amp; blacklistedAccounts.contains(accountId);</span>
+    }
+
+    public void addSuspiciousAccount(String accountId) {
+<span class="fc" id="L120">        suspiciousAccounts.add(accountId);</span>
+<span class="fc" id="L121">    }</span>
+
+    public void addBlacklistedAccount(String accountId) {
+<span class="nc" id="L124">        blacklistedAccounts.add(accountId);</span>
+<span class="nc" id="L125">    }</span>
+
+    public void removeSuspiciousAccount(String accountId) {
+<span class="fc" id="L128">        suspiciousAccounts.remove(accountId);</span>
+<span class="fc" id="L129">    }</span>
+
+    public void removeBlacklistedAccount(String accountId) {
+<span class="nc" id="L132">        blacklistedAccounts.remove(accountId);</span>
+<span class="nc" id="L133">    }</span>
+}
+
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

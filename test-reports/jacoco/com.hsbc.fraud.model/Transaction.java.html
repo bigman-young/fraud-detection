@@ -1,0 +1,279 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Transaction.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Real-Time Fraud Detection System</a> &gt; <a href="index.source.html" class="el_package">com.hsbc.fraud.model</a> &gt; <span class="el_source">Transaction.java</span></div><h1>Transaction.java</h1><pre class="source lang-java linenums">package com.hsbc.fraud.model;
+
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+import java.io.Serializable;
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.Objects;
+
+/**
+ * Represents a financial transaction in the fraud detection system.
+ * This is the core data model that flows through the Flink pipeline.
+ */
+@JsonIgnoreProperties(ignoreUnknown = true)
+public class Transaction implements Serializable {
+
+    private static final long serialVersionUID = 1L;
+
+    @JsonProperty(&quot;transaction_id&quot;)
+    private String transactionId;
+
+    @JsonProperty(&quot;account_id&quot;)
+    private String accountId;
+
+    @JsonProperty(&quot;target_account_id&quot;)
+    private String targetAccountId;
+
+    @JsonProperty(&quot;amount&quot;)
+    private BigDecimal amount;
+
+    @JsonProperty(&quot;currency&quot;)
+    private String currency;
+
+    @JsonProperty(&quot;transaction_type&quot;)
+    private TransactionType transactionType;
+
+    @JsonProperty(&quot;timestamp&quot;)
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = &quot;yyyy-MM-dd'T'HH:mm:ss.SSS'Z'&quot;, timezone = &quot;UTC&quot;)
+    private Instant timestamp;
+
+    @JsonProperty(&quot;merchant_id&quot;)
+    private String merchantId;
+
+    @JsonProperty(&quot;location&quot;)
+    private String location;
+
+    @JsonProperty(&quot;country_code&quot;)
+    private String countryCode;
+
+    @JsonProperty(&quot;ip_address&quot;)
+    private String ipAddress;
+
+    @JsonProperty(&quot;device_id&quot;)
+    private String deviceId;
+
+    @JsonProperty(&quot;channel&quot;)
+    private String channel; // ONLINE, ATM, POS, MOBILE
+
+    // Default constructor for Jackson
+<span class="fc" id="L62">    public Transaction() {}</span>
+
+    // Builder pattern for easier construction
+    public static Builder builder() {
+<span class="fc" id="L66">        return new Builder();</span>
+    }
+
+    // Getters and Setters
+    public String getTransactionId() {
+<span class="fc" id="L71">        return transactionId;</span>
+    }
+
+    public void setTransactionId(String transactionId) {
+<span class="fc" id="L75">        this.transactionId = transactionId;</span>
+<span class="fc" id="L76">    }</span>
+
+    public String getAccountId() {
+<span class="fc" id="L79">        return accountId;</span>
+    }
+
+    public void setAccountId(String accountId) {
+<span class="fc" id="L83">        this.accountId = accountId;</span>
+<span class="fc" id="L84">    }</span>
+
+    public String getTargetAccountId() {
+<span class="fc" id="L87">        return targetAccountId;</span>
+    }
+
+    public void setTargetAccountId(String targetAccountId) {
+<span class="fc" id="L91">        this.targetAccountId = targetAccountId;</span>
+<span class="fc" id="L92">    }</span>
+
+    public BigDecimal getAmount() {
+<span class="fc" id="L95">        return amount;</span>
+    }
+
+    public void setAmount(BigDecimal amount) {
+<span class="fc" id="L99">        this.amount = amount;</span>
+<span class="fc" id="L100">    }</span>
+
+    public String getCurrency() {
+<span class="fc" id="L103">        return currency;</span>
+    }
+
+    public void setCurrency(String currency) {
+<span class="fc" id="L107">        this.currency = currency;</span>
+<span class="fc" id="L108">    }</span>
+
+    public TransactionType getTransactionType() {
+<span class="fc" id="L111">        return transactionType;</span>
+    }
+
+    public void setTransactionType(TransactionType transactionType) {
+<span class="fc" id="L115">        this.transactionType = transactionType;</span>
+<span class="fc" id="L116">    }</span>
+
+    public Instant getTimestamp() {
+<span class="fc" id="L119">        return timestamp;</span>
+    }
+
+    public void setTimestamp(Instant timestamp) {
+<span class="fc" id="L123">        this.timestamp = timestamp;</span>
+<span class="fc" id="L124">    }</span>
+
+    public String getMerchantId() {
+<span class="fc" id="L127">        return merchantId;</span>
+    }
+
+    public void setMerchantId(String merchantId) {
+<span class="fc" id="L131">        this.merchantId = merchantId;</span>
+<span class="fc" id="L132">    }</span>
+
+    public String getLocation() {
+<span class="nc" id="L135">        return location;</span>
+    }
+
+    public void setLocation(String location) {
+<span class="nc" id="L139">        this.location = location;</span>
+<span class="nc" id="L140">    }</span>
+
+    public String getCountryCode() {
+<span class="fc" id="L143">        return countryCode;</span>
+    }
+
+    public void setCountryCode(String countryCode) {
+<span class="fc" id="L147">        this.countryCode = countryCode;</span>
+<span class="fc" id="L148">    }</span>
+
+    public String getIpAddress() {
+<span class="nc" id="L151">        return ipAddress;</span>
+    }
+
+    public void setIpAddress(String ipAddress) {
+<span class="nc" id="L155">        this.ipAddress = ipAddress;</span>
+<span class="nc" id="L156">    }</span>
+
+    public String getDeviceId() {
+<span class="nc" id="L159">        return deviceId;</span>
+    }
+
+    public void setDeviceId(String deviceId) {
+<span class="nc" id="L163">        this.deviceId = deviceId;</span>
+<span class="nc" id="L164">    }</span>
+
+    public String getChannel() {
+<span class="nc" id="L167">        return channel;</span>
+    }
+
+    public void setChannel(String channel) {
+<span class="fc" id="L171">        this.channel = channel;</span>
+<span class="fc" id="L172">    }</span>
+
+    @Override
+    public boolean equals(Object o) {
+<span class="nc bnc" id="L176" title="All 2 branches missed.">        if (this == o) return true;</span>
+<span class="nc bnc" id="L177" title="All 4 branches missed.">        if (o == null || getClass() != o.getClass()) return false;</span>
+<span class="nc" id="L178">        Transaction that = (Transaction) o;</span>
+<span class="nc" id="L179">        return Objects.equals(transactionId, that.transactionId);</span>
+    }
+
+    @Override
+    public int hashCode() {
+<span class="nc" id="L184">        return Objects.hash(transactionId);</span>
+    }
+
+    @Override
+    public String toString() {
+<span class="nc" id="L189">        return &quot;Transaction{&quot; +</span>
+                &quot;transactionId='&quot; + transactionId + '\'' +
+                &quot;, accountId='&quot; + accountId + '\'' +
+                &quot;, targetAccountId='&quot; + targetAccountId + '\'' +
+                &quot;, amount=&quot; + amount +
+                &quot;, currency='&quot; + currency + '\'' +
+                &quot;, transactionType=&quot; + transactionType +
+                &quot;, timestamp=&quot; + timestamp +
+                &quot;, merchantId='&quot; + merchantId + '\'' +
+                &quot;, location='&quot; + location + '\'' +
+                &quot;, countryCode='&quot; + countryCode + '\'' +
+                &quot;, channel='&quot; + channel + '\'' +
+                '}';
+    }
+
+    // Builder class
+<span class="fc" id="L205">    public static class Builder {</span>
+<span class="fc" id="L206">        private final Transaction transaction = new Transaction();</span>
+
+        public Builder transactionId(String transactionId) {
+<span class="fc" id="L209">            transaction.setTransactionId(transactionId);</span>
+<span class="fc" id="L210">            return this;</span>
+        }
+
+        public Builder accountId(String accountId) {
+<span class="fc" id="L214">            transaction.setAccountId(accountId);</span>
+<span class="fc" id="L215">            return this;</span>
+        }
+
+        public Builder targetAccountId(String targetAccountId) {
+<span class="fc" id="L219">            transaction.setTargetAccountId(targetAccountId);</span>
+<span class="fc" id="L220">            return this;</span>
+        }
+
+        public Builder amount(BigDecimal amount) {
+<span class="fc" id="L224">            transaction.setAmount(amount);</span>
+<span class="fc" id="L225">            return this;</span>
+        }
+
+        public Builder currency(String currency) {
+<span class="fc" id="L229">            transaction.setCurrency(currency);</span>
+<span class="fc" id="L230">            return this;</span>
+        }
+
+        public Builder transactionType(TransactionType type) {
+<span class="fc" id="L234">            transaction.setTransactionType(type);</span>
+<span class="fc" id="L235">            return this;</span>
+        }
+
+        public Builder timestamp(Instant timestamp) {
+<span class="fc" id="L239">            transaction.setTimestamp(timestamp);</span>
+<span class="fc" id="L240">            return this;</span>
+        }
+
+        public Builder merchantId(String merchantId) {
+<span class="fc" id="L244">            transaction.setMerchantId(merchantId);</span>
+<span class="fc" id="L245">            return this;</span>
+        }
+
+        public Builder location(String location) {
+<span class="nc" id="L249">            transaction.setLocation(location);</span>
+<span class="nc" id="L250">            return this;</span>
+        }
+
+        public Builder countryCode(String countryCode) {
+<span class="fc" id="L254">            transaction.setCountryCode(countryCode);</span>
+<span class="fc" id="L255">            return this;</span>
+        }
+
+        public Builder ipAddress(String ipAddress) {
+<span class="nc" id="L259">            transaction.setIpAddress(ipAddress);</span>
+<span class="nc" id="L260">            return this;</span>
+        }
+
+        public Builder deviceId(String deviceId) {
+<span class="nc" id="L264">            transaction.setDeviceId(deviceId);</span>
+<span class="nc" id="L265">            return this;</span>
+        }
+
+        public Builder channel(String channel) {
+<span class="fc" id="L269">            transaction.setChannel(channel);</span>
+<span class="fc" id="L270">            return this;</span>
+        }
+
+        public Transaction build() {
+<span class="fc" id="L274">            return transaction;</span>
+        }
+    }
+}
+
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

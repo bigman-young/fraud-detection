@@ -1,0 +1,281 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AlertSink.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Real-Time Fraud Detection System</a> &gt; <a href="index.source.html" class="el_package">com.hsbc.fraud.sink</a> &gt; <span class="el_source">AlertSink.java</span></div><h1>AlertSink.java</h1><pre class="source lang-java linenums">package com.hsbc.fraud.sink;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.google.api.core.ApiFuture;
+import com.google.api.core.ApiFutureCallback;
+import com.google.api.core.ApiFutures;
+import com.google.cloud.pubsub.v1.Publisher;
+import com.google.common.util.concurrent.MoreExecutors;
+import com.google.protobuf.ByteString;
+import com.google.pubsub.v1.PubsubMessage;
+import com.google.pubsub.v1.TopicName;
+import com.hsbc.fraud.model.AlertSeverity;
+import com.hsbc.fraud.model.FraudAlert;
+import org.apache.flink.api.common.serialization.SerializationSchema;
+import org.apache.flink.connector.kafka.sink.KafkaRecordSerializationSchema;
+import org.apache.flink.connector.kafka.sink.KafkaSink;
+import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+
+/**
+ * Alert sink implementations for outputting fraud alerts.
+ * Supports Kafka, logging, and custom sink implementations.
+ */
+<span class="nc" id="L32">public class AlertSink {</span>
+
+<span class="nc" id="L34">    private static final Logger LOG = LoggerFactory.getLogger(AlertSink.class);</span>
+
+    /**
+     * Creates a Kafka sink for fraud alerts.
+     */
+    public static KafkaSink&lt;FraudAlert&gt; createKafkaSink(String bootstrapServers, String topic) {
+<span class="nc" id="L40">        return KafkaSink.&lt;FraudAlert&gt;builder()</span>
+<span class="nc" id="L41">                .setBootstrapServers(bootstrapServers)</span>
+<span class="nc" id="L42">                .setRecordSerializer(new AlertKafkaSerializer(topic))</span>
+<span class="nc" id="L43">                .build();</span>
+    }
+
+    /**
+     * Kafka serialization schema for FraudAlert.
+     */
+    public static class AlertKafkaSerializer implements KafkaRecordSerializationSchema&lt;FraudAlert&gt; {
+
+        private static final long serialVersionUID = 1L;
+        private final String topic;
+        private transient ObjectMapper objectMapper;
+
+<span class="nc" id="L55">        public AlertKafkaSerializer(String topic) {</span>
+<span class="nc" id="L56">            this.topic = topic;</span>
+<span class="nc" id="L57">        }</span>
+
+        @Override
+        public void open(SerializationSchema.InitializationContext context, KafkaSinkContext sinkContext) {
+<span class="nc" id="L61">            objectMapper = new ObjectMapper();</span>
+<span class="nc" id="L62">            objectMapper.registerModule(new JavaTimeModule());</span>
+<span class="nc" id="L63">            objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);</span>
+<span class="nc" id="L64">        }</span>
+
+        @Override
+        public ProducerRecord&lt;byte[], byte[]&gt; serialize(FraudAlert alert, KafkaSinkContext context, Long timestamp) {
+            try {
+<span class="nc bnc" id="L69" title="All 2 branches missed.">                if (objectMapper == null) {</span>
+<span class="nc" id="L70">                    objectMapper = new ObjectMapper();</span>
+<span class="nc" id="L71">                    objectMapper.registerModule(new JavaTimeModule());</span>
+<span class="nc" id="L72">                    objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);</span>
+                }
+                
+<span class="nc" id="L75">                byte[] key = alert.getTransaction().getAccountId().getBytes(StandardCharsets.UTF_8);</span>
+<span class="nc" id="L76">                byte[] value = objectMapper.writeValueAsBytes(alert);</span>
+                
+<span class="nc" id="L78">                return new ProducerRecord&lt;&gt;(topic, null, timestamp, key, value);</span>
+<span class="nc" id="L79">            } catch (JsonProcessingException e) {</span>
+<span class="nc" id="L80">                LOG.error(&quot;Failed to serialize alert: {}&quot;, alert.getAlertId(), e);</span>
+<span class="nc" id="L81">                return null;</span>
+            }
+        }
+    }
+
+    /**
+     * Sink function that logs fraud alerts with appropriate severity levels.
+     */
+<span class="nc" id="L89">    public static class LoggingSink extends RichSinkFunction&lt;FraudAlert&gt; {</span>
+
+        private static final long serialVersionUID = 1L;
+<span class="nc" id="L92">        private static final Logger ALERT_LOG = LoggerFactory.getLogger(&quot;FraudAlerts&quot;);</span>
+        private transient ObjectMapper objectMapper;
+
+        @Override
+        public void open(org.apache.flink.configuration.Configuration parameters) throws Exception {
+<span class="nc" id="L97">            super.open(parameters);</span>
+<span class="nc" id="L98">            objectMapper = new ObjectMapper();</span>
+<span class="nc" id="L99">            objectMapper.registerModule(new JavaTimeModule());</span>
+<span class="nc" id="L100">            objectMapper.enable(SerializationFeature.INDENT_OUTPUT);</span>
+<span class="nc" id="L101">            objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);</span>
+<span class="nc" id="L102">        }</span>
+
+        @Override
+        public void invoke(FraudAlert alert, Context context) throws Exception {
+<span class="nc" id="L106">            String alertJson = objectMapper.writeValueAsString(alert);</span>
+
+            // Log with appropriate severity
+<span class="nc bnc" id="L109" title="All 5 branches missed.">            switch (alert.getSeverity()) {</span>
+                case CRITICAL:
+<span class="nc" id="L111">                    ALERT_LOG.error(&quot;[CRITICAL FRAUD ALERT] {}\n{}&quot;, formatAlertSummary(alert), alertJson);</span>
+<span class="nc" id="L112">                    break;</span>
+                case HIGH:
+<span class="nc" id="L114">                    ALERT_LOG.warn(&quot;[HIGH SEVERITY ALERT] {}\n{}&quot;, formatAlertSummary(alert), alertJson);</span>
+<span class="nc" id="L115">                    break;</span>
+                case MEDIUM:
+<span class="nc" id="L117">                    ALERT_LOG.warn(&quot;[MEDIUM SEVERITY ALERT] {}&quot;, formatAlertSummary(alert));</span>
+<span class="nc" id="L118">                    break;</span>
+                case LOW:
+<span class="nc" id="L120">                    ALERT_LOG.info(&quot;[LOW SEVERITY ALERT] {}&quot;, formatAlertSummary(alert));</span>
+                    break;
+            }
+<span class="nc" id="L123">        }</span>
+
+        private String formatAlertSummary(FraudAlert alert) {
+<span class="nc" id="L126">            return String.format(</span>
+                    &quot;AlertID=%s | TxID=%s | Account=%s | Type=%s | Score=%.2f | Rules=%s&quot;,
+<span class="nc" id="L128">                    alert.getAlertId(),</span>
+<span class="nc" id="L129">                    alert.getTransaction().getTransactionId(),</span>
+<span class="nc" id="L130">                    alert.getTransaction().getAccountId(),</span>
+<span class="nc" id="L131">                    alert.getAlertType(),</span>
+<span class="nc" id="L132">                    alert.getRiskScore(),</span>
+<span class="nc" id="L133">                    alert.getTriggeredRules()</span>
+            );
+        }
+    }
+
+    /**
+     * Sink function that sends alerts to Google Cloud Pub/Sub.
+     */
+    public static class PubSubSink extends RichSinkFunction&lt;FraudAlert&gt; {
+
+        private static final long serialVersionUID = 1L;
+<span class="nc" id="L144">        private static final Logger LOG = LoggerFactory.getLogger(PubSubSink.class);</span>
+
+        private final String projectId;
+        private final String topicId;
+        private transient Publisher publisher;
+        private transient ObjectMapper objectMapper;
+
+<span class="nc" id="L151">        public PubSubSink(String projectId, String topicId) {</span>
+<span class="nc" id="L152">            this.projectId = projectId;</span>
+<span class="nc" id="L153">            this.topicId = topicId;</span>
+<span class="nc" id="L154">        }</span>
+
+        @Override
+        public void open(org.apache.flink.configuration.Configuration parameters) throws Exception {
+<span class="nc" id="L158">            super.open(parameters);</span>
+            
+<span class="nc" id="L160">            objectMapper = new ObjectMapper();</span>
+<span class="nc" id="L161">            objectMapper.registerModule(new JavaTimeModule());</span>
+<span class="nc" id="L162">            objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);</span>
+
+<span class="nc" id="L164">            TopicName topicName = TopicName.of(projectId, topicId);</span>
+            try {
+<span class="nc" id="L166">                publisher = Publisher.newBuilder(topicName).build();</span>
+<span class="nc" id="L167">                LOG.info(&quot;Pub/Sub publisher created for topic: {}&quot;, topicName);</span>
+<span class="nc" id="L168">            } catch (IOException e) {</span>
+<span class="nc" id="L169">                LOG.error(&quot;Failed to create Pub/Sub publisher&quot;, e);</span>
+<span class="nc" id="L170">                throw e;</span>
+<span class="nc" id="L171">            }</span>
+<span class="nc" id="L172">        }</span>
+
+        @Override
+        public void invoke(FraudAlert alert, Context context) throws Exception {
+<span class="nc bnc" id="L176" title="All 2 branches missed.">            if (publisher == null) {</span>
+<span class="nc" id="L177">                LOG.error(&quot;Publisher not initialized, skipping alert: {}&quot;, alert.getAlertId());</span>
+<span class="nc" id="L178">                return;</span>
+            }
+
+            try {
+<span class="nc" id="L182">                String alertJson = objectMapper.writeValueAsString(alert);</span>
+                
+<span class="nc" id="L184">                PubsubMessage message = PubsubMessage.newBuilder()</span>
+<span class="nc" id="L185">                        .setData(ByteString.copyFromUtf8(alertJson))</span>
+<span class="nc" id="L186">                        .putAttributes(&quot;alertId&quot;, alert.getAlertId())</span>
+<span class="nc" id="L187">                        .putAttributes(&quot;severity&quot;, alert.getSeverity().name())</span>
+<span class="nc" id="L188">                        .putAttributes(&quot;alertType&quot;, alert.getAlertType().name())</span>
+<span class="nc" id="L189">                        .putAttributes(&quot;accountId&quot;, alert.getTransaction().getAccountId())</span>
+<span class="nc" id="L190">                        .build();</span>
+
+<span class="nc" id="L192">                ApiFuture&lt;String&gt; future = publisher.publish(message);</span>
+                
+<span class="nc" id="L194">                ApiFutures.addCallback(future, new ApiFutureCallback&lt;String&gt;() {</span>
+                    @Override
+                    public void onSuccess(String messageId) {
+<span class="nc" id="L197">                        LOG.info(&quot;Published alert {} to Pub/Sub with messageId: {}&quot;, </span>
+<span class="nc" id="L198">                                alert.getAlertId(), messageId);</span>
+<span class="nc" id="L199">                    }</span>
+
+                    @Override
+                    public void onFailure(Throwable t) {
+<span class="nc" id="L203">                        LOG.error(&quot;Failed to publish alert {} to Pub/Sub&quot;, alert.getAlertId(), t);</span>
+<span class="nc" id="L204">                    }</span>
+<span class="nc" id="L205">                }, MoreExecutors.directExecutor());</span>
+
+<span class="nc" id="L207">            } catch (JsonProcessingException e) {</span>
+<span class="nc" id="L208">                LOG.error(&quot;Failed to serialize alert: {}&quot;, alert.getAlertId(), e);</span>
+<span class="nc" id="L209">            }</span>
+<span class="nc" id="L210">        }</span>
+
+        @Override
+        public void close() throws Exception {
+<span class="nc bnc" id="L214" title="All 2 branches missed.">            if (publisher != null) {</span>
+<span class="nc" id="L215">                publisher.shutdown();</span>
+<span class="nc" id="L216">                LOG.info(&quot;Pub/Sub publisher shutdown completed&quot;);</span>
+            }
+<span class="nc" id="L218">            super.close();</span>
+<span class="nc" id="L219">        }</span>
+    }
+
+    /**
+     * Sink function that sends alerts to an external webhook/API.
+     */
+    public static class WebhookSink extends RichSinkFunction&lt;FraudAlert&gt; {
+
+        private static final long serialVersionUID = 1L;
+<span class="nc" id="L228">        private static final Logger LOG = LoggerFactory.getLogger(WebhookSink.class);</span>
+        
+        private final String webhookUrl;
+        private final AlertSeverity minSeverity;
+        private transient ObjectMapper objectMapper;
+
+        public WebhookSink(String webhookUrl) {
+<span class="nc" id="L235">            this(webhookUrl, AlertSeverity.MEDIUM);</span>
+<span class="nc" id="L236">        }</span>
+
+<span class="nc" id="L238">        public WebhookSink(String webhookUrl, AlertSeverity minSeverity) {</span>
+<span class="nc" id="L239">            this.webhookUrl = webhookUrl;</span>
+<span class="nc" id="L240">            this.minSeverity = minSeverity;</span>
+<span class="nc" id="L241">        }</span>
+
+        @Override
+        public void open(org.apache.flink.configuration.Configuration parameters) throws Exception {
+<span class="nc" id="L245">            super.open(parameters);</span>
+<span class="nc" id="L246">            objectMapper = new ObjectMapper();</span>
+<span class="nc" id="L247">            objectMapper.registerModule(new JavaTimeModule());</span>
+<span class="nc" id="L248">            objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);</span>
+<span class="nc" id="L249">        }</span>
+
+        @Override
+        public void invoke(FraudAlert alert, Context context) throws Exception {
+            // Only send alerts meeting minimum severity
+<span class="nc bnc" id="L254" title="All 2 branches missed.">            if (alert.getSeverity().getLevel() &lt; minSeverity.getLevel()) {</span>
+<span class="nc" id="L255">                return;</span>
+            }
+
+            // In production, this would make an HTTP call to the webhook
+            // For demo purposes, we just log
+<span class="nc" id="L260">            LOG.info(&quot;Would send alert {} to webhook {}&quot;, alert.getAlertId(), webhookUrl);</span>
+            
+            // Example webhook call (commented out for demo):
+            /*
+            HttpClient client = HttpClient.newHttpClient();
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(webhookUrl))
+                    .header(&quot;Content-Type&quot;, &quot;application/json&quot;)
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(alert)))
+                    .build();
+            client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                    .thenAccept(response -&gt; {
+                        if (response.statusCode() &gt;= 400) {
+                            LOG.error(&quot;Failed to send alert: HTTP {}&quot;, response.statusCode());
+                        }
+                    });
+            */
+<span class="nc" id="L277">        }</span>
+    }
+}
+
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

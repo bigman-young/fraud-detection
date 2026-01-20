@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>GeographicAnomalyRule.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Real-Time Fraud Detection System</a> &gt; <a href="index.source.html" class="el_package">com.hsbc.fraud.rules.impl</a> &gt; <span class="el_source">GeographicAnomalyRule.java</span></div><h1>GeographicAnomalyRule.java</h1><pre class="source lang-java linenums">package com.hsbc.fraud.rules.impl;
+
+import com.hsbc.fraud.model.AlertType;
+import com.hsbc.fraud.model.Transaction;
+import com.hsbc.fraud.rules.FraudRule;
+import com.hsbc.fraud.rules.RuleResult;
+
+import java.util.HashSet;
+import java.util.Optional;
+import java.util.Set;
+
+/**
+ * Rule to detect transactions from high-risk geographic locations.
+ * Flags transactions originating from countries with high fraud rates.
+ */
+public class GeographicAnomalyRule implements FraudRule {
+
+    private static final long serialVersionUID = 1L;
+
+    private final Set&lt;String&gt; highRiskCountries;
+    private final Set&lt;String&gt; blockedCountries;
+
+<span class="fc" id="L23">    public GeographicAnomalyRule() {</span>
+<span class="fc" id="L24">        this.highRiskCountries = new HashSet&lt;&gt;();</span>
+<span class="fc" id="L25">        this.blockedCountries = new HashSet&lt;&gt;();</span>
+<span class="fc" id="L26">        initializeDefaultLists();</span>
+<span class="fc" id="L27">    }</span>
+
+<span class="fc" id="L29">    public GeographicAnomalyRule(Set&lt;String&gt; highRiskCountries, Set&lt;String&gt; blockedCountries) {</span>
+<span class="fc" id="L30">        this.highRiskCountries = new HashSet&lt;&gt;(highRiskCountries);</span>
+<span class="fc" id="L31">        this.blockedCountries = new HashSet&lt;&gt;(blockedCountries);</span>
+<span class="fc" id="L32">    }</span>
+
+    private void initializeDefaultLists() {
+        // Sample high-risk countries (for demonstration only)
+<span class="fc" id="L36">        highRiskCountries.add(&quot;XX&quot;); // Fictional country code</span>
+<span class="fc" id="L37">        highRiskCountries.add(&quot;YY&quot;);</span>
+        
+        // Sample blocked countries
+<span class="fc" id="L40">        blockedCountries.add(&quot;ZZ&quot;); // Fictional blocked country</span>
+<span class="fc" id="L41">    }</span>
+
+    @Override
+    public String getRuleName() {
+<span class="fc" id="L45">        return &quot;GEOGRAPHIC_ANOMALY&quot;;</span>
+    }
+
+    @Override
+    public String getDescription() {
+<span class="nc" id="L50">        return &quot;Detects transactions from high-risk or blocked geographic locations&quot;;</span>
+    }
+
+    @Override
+    public Optional&lt;RuleResult&gt; evaluate(Transaction transaction) {
+<span class="pc bpc" id="L55" title="1 of 4 branches missed.">        if (transaction == null || transaction.getCountryCode() == null) {</span>
+<span class="fc" id="L56">            return Optional.empty();</span>
+        }
+
+<span class="fc" id="L59">        String countryCode = transaction.getCountryCode().toUpperCase();</span>
+
+        // Check blocked countries first
+<span class="fc bfc" id="L62" title="All 2 branches covered.">        if (blockedCountries.contains(countryCode)) {</span>
+<span class="fc" id="L63">            return Optional.of(new RuleResult(</span>
+<span class="fc" id="L64">                    getRuleName(),</span>
+                    AlertType.GEOGRAPHIC_ANOMALY,
+                    0.98,
+<span class="fc" id="L67">                    String.format(&quot;Transaction from BLOCKED country: %s&quot;, countryCode)</span>
+            ));
+        }
+
+        // Check high-risk countries
+<span class="fc bfc" id="L72" title="All 2 branches covered.">        if (highRiskCountries.contains(countryCode)) {</span>
+<span class="fc" id="L73">            return Optional.of(new RuleResult(</span>
+<span class="fc" id="L74">                    getRuleName(),</span>
+                    AlertType.GEOGRAPHIC_ANOMALY,
+                    0.6,
+<span class="fc" id="L77">                    String.format(&quot;Transaction from HIGH-RISK country: %s&quot;, countryCode)</span>
+            ));
+        }
+
+<span class="fc" id="L81">        return Optional.empty();</span>
+    }
+
+    @Override
+    public int getPriority() {
+<span class="fc" id="L86">        return 80;</span>
+    }
+
+    public void addHighRiskCountry(String countryCode) {
+<span class="fc" id="L90">        highRiskCountries.add(countryCode.toUpperCase());</span>
+<span class="fc" id="L91">    }</span>
+
+    public void addBlockedCountry(String countryCode) {
+<span class="nc" id="L94">        blockedCountries.add(countryCode.toUpperCase());</span>
+<span class="nc" id="L95">    }</span>
+
+    public boolean isHighRisk(String countryCode) {
+<span class="pc bpc" id="L98" title="2 of 4 branches missed.">        return countryCode != null &amp;&amp; highRiskCountries.contains(countryCode.toUpperCase());</span>
+    }
+
+    public boolean isBlocked(String countryCode) {
+<span class="nc bnc" id="L102" title="All 4 branches missed.">        return countryCode != null &amp;&amp; blockedCountries.contains(countryCode.toUpperCase());</span>
+    }
+}
+
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

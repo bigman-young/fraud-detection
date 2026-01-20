@@ -1,0 +1,226 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>FraudAlert.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Real-Time Fraud Detection System</a> &gt; <a href="index.source.html" class="el_package">com.hsbc.fraud.model</a> &gt; <span class="el_source">FraudAlert.java</span></div><h1>FraudAlert.java</h1><pre class="source lang-java linenums">package com.hsbc.fraud.model;
+
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+import java.io.Serializable;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.UUID;
+
+/**
+ * Represents a fraud alert generated when suspicious activity is detected.
+ * Contains detailed information about the fraud detection result.
+ */
+public class FraudAlert implements Serializable {
+
+    private static final long serialVersionUID = 1L;
+
+    @JsonProperty(&quot;alert_id&quot;)
+    private String alertId;
+
+    @JsonProperty(&quot;transaction&quot;)
+    private Transaction transaction;
+
+    @JsonProperty(&quot;alert_type&quot;)
+    private AlertType alertType;
+
+    @JsonProperty(&quot;severity&quot;)
+    private AlertSeverity severity;
+
+    @JsonProperty(&quot;risk_score&quot;)
+    private double riskScore;
+
+    @JsonProperty(&quot;triggered_rules&quot;)
+    private List&lt;String&gt; triggeredRules;
+
+    @JsonProperty(&quot;description&quot;)
+    private String description;
+
+    @JsonProperty(&quot;created_at&quot;)
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = &quot;yyyy-MM-dd'T'HH:mm:ss.SSS'Z'&quot;, timezone = &quot;UTC&quot;)
+    private Instant createdAt;
+
+    @JsonProperty(&quot;status&quot;)
+    private AlertStatus status;
+
+<span class="fc" id="L49">    public FraudAlert() {</span>
+<span class="fc" id="L50">        this.alertId = UUID.randomUUID().toString();</span>
+<span class="fc" id="L51">        this.triggeredRules = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L52">        this.createdAt = Instant.now();</span>
+<span class="fc" id="L53">        this.status = AlertStatus.NEW;</span>
+<span class="fc" id="L54">    }</span>
+
+    public FraudAlert(Transaction transaction, AlertType alertType, AlertSeverity severity, 
+                      double riskScore, String description) {
+<span class="nc" id="L58">        this();</span>
+<span class="nc" id="L59">        this.transaction = transaction;</span>
+<span class="nc" id="L60">        this.alertType = alertType;</span>
+<span class="nc" id="L61">        this.severity = severity;</span>
+<span class="nc" id="L62">        this.riskScore = riskScore;</span>
+<span class="nc" id="L63">        this.description = description;</span>
+<span class="nc" id="L64">    }</span>
+
+    // Builder pattern
+    public static Builder builder() {
+<span class="fc" id="L68">        return new Builder();</span>
+    }
+
+    // Getters and Setters
+    public String getAlertId() {
+<span class="fc" id="L73">        return alertId;</span>
+    }
+
+    public void setAlertId(String alertId) {
+<span class="nc" id="L77">        this.alertId = alertId;</span>
+<span class="nc" id="L78">    }</span>
+
+    public Transaction getTransaction() {
+<span class="fc" id="L81">        return transaction;</span>
+    }
+
+    public void setTransaction(Transaction transaction) {
+<span class="fc" id="L85">        this.transaction = transaction;</span>
+<span class="fc" id="L86">    }</span>
+
+    public AlertType getAlertType() {
+<span class="fc" id="L89">        return alertType;</span>
+    }
+
+    public void setAlertType(AlertType alertType) {
+<span class="fc" id="L93">        this.alertType = alertType;</span>
+<span class="fc" id="L94">    }</span>
+
+    public AlertSeverity getSeverity() {
+<span class="fc" id="L97">        return severity;</span>
+    }
+
+    public void setSeverity(AlertSeverity severity) {
+<span class="fc" id="L101">        this.severity = severity;</span>
+<span class="fc" id="L102">    }</span>
+
+    public double getRiskScore() {
+<span class="fc" id="L105">        return riskScore;</span>
+    }
+
+    public void setRiskScore(double riskScore) {
+<span class="fc" id="L109">        this.riskScore = riskScore;</span>
+<span class="fc" id="L110">    }</span>
+
+    public List&lt;String&gt; getTriggeredRules() {
+<span class="fc" id="L113">        return triggeredRules;</span>
+    }
+
+    public void setTriggeredRules(List&lt;String&gt; triggeredRules) {
+<span class="fc" id="L117">        this.triggeredRules = triggeredRules;</span>
+<span class="fc" id="L118">    }</span>
+
+    public void addTriggeredRule(String rule) {
+<span class="nc" id="L121">        this.triggeredRules.add(rule);</span>
+<span class="nc" id="L122">    }</span>
+
+    public String getDescription() {
+<span class="nc" id="L125">        return description;</span>
+    }
+
+    public void setDescription(String description) {
+<span class="fc" id="L129">        this.description = description;</span>
+<span class="fc" id="L130">    }</span>
+
+    public Instant getCreatedAt() {
+<span class="nc" id="L133">        return createdAt;</span>
+    }
+
+    public void setCreatedAt(Instant createdAt) {
+<span class="nc" id="L137">        this.createdAt = createdAt;</span>
+<span class="nc" id="L138">    }</span>
+
+    public AlertStatus getStatus() {
+<span class="nc" id="L141">        return status;</span>
+    }
+
+    public void setStatus(AlertStatus status) {
+<span class="fc" id="L145">        this.status = status;</span>
+<span class="fc" id="L146">    }</span>
+
+    @Override
+    public boolean equals(Object o) {
+<span class="nc bnc" id="L150" title="All 2 branches missed.">        if (this == o) return true;</span>
+<span class="nc bnc" id="L151" title="All 4 branches missed.">        if (o == null || getClass() != o.getClass()) return false;</span>
+<span class="nc" id="L152">        FraudAlert that = (FraudAlert) o;</span>
+<span class="nc" id="L153">        return Objects.equals(alertId, that.alertId);</span>
+    }
+
+    @Override
+    public int hashCode() {
+<span class="nc" id="L158">        return Objects.hash(alertId);</span>
+    }
+
+    @Override
+    public String toString() {
+<span class="nc" id="L163">        return &quot;FraudAlert{&quot; +</span>
+                &quot;alertId='&quot; + alertId + '\'' +
+<span class="nc bnc" id="L165" title="All 2 branches missed.">                &quot;, transactionId='&quot; + (transaction != null ? transaction.getTransactionId() : &quot;null&quot;) + '\'' +</span>
+                &quot;, alertType=&quot; + alertType +
+                &quot;, severity=&quot; + severity +
+                &quot;, riskScore=&quot; + riskScore +
+                &quot;, triggeredRules=&quot; + triggeredRules +
+                &quot;, description='&quot; + description + '\'' +
+                &quot;, createdAt=&quot; + createdAt +
+                &quot;, status=&quot; + status +
+                '}';
+    }
+
+    // Builder class
+<span class="fc" id="L177">    public static class Builder {</span>
+<span class="fc" id="L178">        private final FraudAlert alert = new FraudAlert();</span>
+
+        public Builder transaction(Transaction transaction) {
+<span class="fc" id="L181">            alert.setTransaction(transaction);</span>
+<span class="fc" id="L182">            return this;</span>
+        }
+
+        public Builder alertType(AlertType alertType) {
+<span class="fc" id="L186">            alert.setAlertType(alertType);</span>
+<span class="fc" id="L187">            return this;</span>
+        }
+
+        public Builder severity(AlertSeverity severity) {
+<span class="fc" id="L191">            alert.setSeverity(severity);</span>
+<span class="fc" id="L192">            return this;</span>
+        }
+
+        public Builder riskScore(double riskScore) {
+<span class="fc" id="L196">            alert.setRiskScore(riskScore);</span>
+<span class="fc" id="L197">            return this;</span>
+        }
+
+        public Builder triggeredRules(List&lt;String&gt; rules) {
+<span class="fc" id="L201">            alert.setTriggeredRules(rules);</span>
+<span class="fc" id="L202">            return this;</span>
+        }
+
+        public Builder addTriggeredRule(String rule) {
+<span class="nc" id="L206">            alert.addTriggeredRule(rule);</span>
+<span class="nc" id="L207">            return this;</span>
+        }
+
+        public Builder description(String description) {
+<span class="fc" id="L211">            alert.setDescription(description);</span>
+<span class="fc" id="L212">            return this;</span>
+        }
+
+        public Builder status(AlertStatus status) {
+<span class="fc" id="L216">            alert.setStatus(status);</span>
+<span class="fc" id="L217">            return this;</span>
+        }
+
+        public FraudAlert build() {
+<span class="fc" id="L221">            return alert;</span>
+        }
+    }
+}
+
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

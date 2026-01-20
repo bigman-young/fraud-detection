@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>TimeBasedAnomalyRule.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Real-Time Fraud Detection System</a> &gt; <a href="index.source.html" class="el_package">com.hsbc.fraud.rules.impl</a> &gt; <span class="el_source">TimeBasedAnomalyRule.java</span></div><h1>TimeBasedAnomalyRule.java</h1><pre class="source lang-java linenums">package com.hsbc.fraud.rules.impl;
+
+import com.hsbc.fraud.model.AlertType;
+import com.hsbc.fraud.model.Transaction;
+import com.hsbc.fraud.rules.FraudRule;
+import com.hsbc.fraud.rules.RuleResult;
+
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.util.Optional;
+
+/**
+ * Rule to detect transactions at unusual times (e.g., late night transactions).
+ * Typically, legitimate transactions are less common during certain hours.
+ */
+public class TimeBasedAnomalyRule implements FraudRule {
+
+    private static final long serialVersionUID = 1L;
+
+    private final LocalTime nightStartTime;
+    private final LocalTime nightEndTime;
+    private final ZoneId zoneId;
+
+    public TimeBasedAnomalyRule() {
+<span class="fc" id="L25">        this(LocalTime.of(1, 0), LocalTime.of(5, 0), ZoneId.of(&quot;UTC&quot;));</span>
+<span class="fc" id="L26">    }</span>
+
+<span class="fc" id="L28">    public TimeBasedAnomalyRule(LocalTime nightStartTime, LocalTime nightEndTime, ZoneId zoneId) {</span>
+<span class="fc" id="L29">        this.nightStartTime = nightStartTime;</span>
+<span class="fc" id="L30">        this.nightEndTime = nightEndTime;</span>
+<span class="fc" id="L31">        this.zoneId = zoneId;</span>
+<span class="fc" id="L32">    }</span>
+
+    @Override
+    public String getRuleName() {
+<span class="fc" id="L36">        return &quot;TIME_BASED_ANOMALY&quot;;</span>
+    }
+
+    @Override
+    public String getDescription() {
+<span class="nc" id="L41">        return &quot;Detects transactions occurring during unusual hours&quot;;</span>
+    }
+
+    @Override
+    public Optional&lt;RuleResult&gt; evaluate(Transaction transaction) {
+<span class="pc bpc" id="L46" title="1 of 4 branches missed.">        if (transaction == null || transaction.getTimestamp() == null) {</span>
+<span class="fc" id="L47">            return Optional.empty();</span>
+        }
+
+<span class="fc" id="L50">        LocalTime transactionTime = LocalTime.from(</span>
+<span class="fc" id="L51">                transaction.getTimestamp().atZone(zoneId)</span>
+        );
+
+<span class="fc bfc" id="L54" title="All 2 branches covered.">        if (isWithinNightHours(transactionTime)) {</span>
+<span class="fc" id="L55">            return Optional.of(new RuleResult(</span>
+<span class="fc" id="L56">                    getRuleName(),</span>
+                    AlertType.TIME_BASED_ANOMALY,
+                    0.4,
+<span class="fc" id="L59">                    String.format(&quot;Transaction at unusual time: %s (Night hours: %s - %s)&quot;,</span>
+                            transactionTime, nightStartTime, nightEndTime)
+            ));
+        }
+
+<span class="fc" id="L64">        return Optional.empty();</span>
+    }
+
+    private boolean isWithinNightHours(LocalTime time) {
+<span class="pc bpc" id="L68" title="1 of 2 branches missed.">        if (nightStartTime.isBefore(nightEndTime)) {</span>
+            // Normal case: e.g., 1:00 AM to 5:00 AM
+<span class="pc bpc" id="L70" title="1 of 4 branches missed.">            return !time.isBefore(nightStartTime) &amp;&amp; time.isBefore(nightEndTime);</span>
+        } else {
+            // Crosses midnight: e.g., 11:00 PM to 5:00 AM
+<span class="nc bnc" id="L73" title="All 4 branches missed.">            return !time.isBefore(nightStartTime) || time.isBefore(nightEndTime);</span>
+        }
+    }
+
+    @Override
+    public int getPriority() {
+<span class="fc" id="L79">        return 30;</span>
+    }
+
+    public LocalTime getNightStartTime() {
+<span class="nc" id="L83">        return nightStartTime;</span>
+    }
+
+    public LocalTime getNightEndTime() {
+<span class="nc" id="L87">        return nightEndTime;</span>
+    }
+}
+
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

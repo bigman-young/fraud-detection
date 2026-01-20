@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>VelocityCheckProcessor.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Real-Time Fraud Detection System</a> &gt; <a href="index.source.html" class="el_package">com.hsbc.fraud.processor</a> &gt; <span class="el_source">VelocityCheckProcessor.java</span></div><h1>VelocityCheckProcessor.java</h1><pre class="source lang-java linenums">package com.hsbc.fraud.processor;
+
+import com.hsbc.fraud.model.*;
+import org.apache.flink.api.common.state.ValueState;
+import org.apache.flink.api.common.state.ValueStateDescriptor;
+import org.apache.flink.api.common.typeinfo.Types;
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
+import org.apache.flink.util.Collector;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Stateful processor that detects velocity-based fraud patterns.
+ * Tracks transaction frequency per account and flags excessive transaction rates.
+ */
+public class VelocityCheckProcessor extends KeyedProcessFunction&lt;String, Transaction, FraudAlert&gt; {
+
+    private static final long serialVersionUID = 1L;
+<span class="nc" id="L25">    private static final Logger LOG = LoggerFactory.getLogger(VelocityCheckProcessor.class);</span>
+
+    private final int maxTransactionsPerWindow;
+    private final Duration windowDuration;
+    
+    // State to track recent transaction timestamps
+    private transient ValueState&lt;List&lt;Long&gt;&gt; recentTransactionsState;
+    // State to track last transaction timestamp
+    private transient ValueState&lt;Long&gt; lastTransactionState;
+
+    public VelocityCheckProcessor() {
+<span class="nc" id="L36">        this(5, Duration.ofMinutes(5));</span>
+<span class="nc" id="L37">    }</span>
+
+<span class="nc" id="L39">    public VelocityCheckProcessor(int maxTransactionsPerWindow, Duration windowDuration) {</span>
+<span class="nc" id="L40">        this.maxTransactionsPerWindow = maxTransactionsPerWindow;</span>
+<span class="nc" id="L41">        this.windowDuration = windowDuration;</span>
+<span class="nc" id="L42">    }</span>
+
+    @Override
+    public void open(Configuration parameters) throws Exception {
+<span class="nc" id="L46">        super.open(parameters);</span>
+
+<span class="nc" id="L48">        ValueStateDescriptor&lt;List&lt;Long&gt;&gt; recentTxDescriptor = new ValueStateDescriptor&lt;&gt;(</span>
+                &quot;recentTransactions&quot;,
+<span class="nc" id="L50">                Types.LIST(Types.LONG)</span>
+        );
+<span class="nc" id="L52">        recentTransactionsState = getRuntimeContext().getState(recentTxDescriptor);</span>
+
+<span class="nc" id="L54">        ValueStateDescriptor&lt;Long&gt; lastTxDescriptor = new ValueStateDescriptor&lt;&gt;(</span>
+                &quot;lastTransaction&quot;,
+                Types.LONG
+        );
+<span class="nc" id="L58">        lastTransactionState = getRuntimeContext().getState(lastTxDescriptor);</span>
+
+<span class="nc" id="L60">        LOG.info(&quot;Velocity check processor initialized: max {} transactions per {} seconds&quot;,</span>
+<span class="nc" id="L61">                maxTransactionsPerWindow, windowDuration.getSeconds());</span>
+<span class="nc" id="L62">    }</span>
+
+    @Override
+    public void processElement(Transaction transaction, Context ctx, Collector&lt;FraudAlert&gt; out) throws Exception {
+<span class="nc bnc" id="L66" title="All 4 branches missed.">        if (transaction == null || transaction.getTimestamp() == null) {</span>
+<span class="nc" id="L67">            return;</span>
+        }
+
+<span class="nc" id="L70">        long currentTimestamp = transaction.getTimestamp().toEpochMilli();</span>
+<span class="nc" id="L71">        long windowStart = currentTimestamp - windowDuration.toMillis();</span>
+
+        // Get recent transactions
+<span class="nc" id="L74">        List&lt;Long&gt; recentTransactions = recentTransactionsState.value();</span>
+<span class="nc bnc" id="L75" title="All 2 branches missed.">        if (recentTransactions == null) {</span>
+<span class="nc" id="L76">            recentTransactions = new ArrayList&lt;&gt;();</span>
+        }
+
+        // Remove old transactions outside the window
+<span class="nc bnc" id="L80" title="All 2 branches missed.">        recentTransactions.removeIf(ts -&gt; ts &lt; windowStart);</span>
+
+        // Check for rapid successive transactions
+<span class="nc" id="L83">        Long lastTransaction = lastTransactionState.value();</span>
+<span class="nc bnc" id="L84" title="All 2 branches missed.">        if (lastTransaction != null) {</span>
+<span class="nc" id="L85">            long timeSinceLastTx = currentTimestamp - lastTransaction;</span>
+            
+            // Flag transactions within 1 second of each other
+<span class="nc bnc" id="L88" title="All 4 branches missed.">            if (timeSinceLastTx &lt; 1000 &amp;&amp; recentTransactions.size() &gt;= 2) {</span>
+<span class="nc" id="L89">                FraudAlert alert = createRapidTransactionAlert(transaction, timeSinceLastTx);</span>
+<span class="nc" id="L90">                out.collect(alert);</span>
+<span class="nc" id="L91">                LOG.warn(&quot;Rapid successive transaction detected for account: {}&quot;, </span>
+<span class="nc" id="L92">                        transaction.getAccountId());</span>
+            }
+        }
+
+        // Check velocity breach
+<span class="nc bnc" id="L97" title="All 2 branches missed.">        if (recentTransactions.size() &gt;= maxTransactionsPerWindow) {</span>
+<span class="nc" id="L98">            FraudAlert alert = createVelocityBreachAlert(transaction, recentTransactions.size() + 1);</span>
+<span class="nc" id="L99">            out.collect(alert);</span>
+<span class="nc" id="L100">            LOG.warn(&quot;Velocity breach detected for account: {} - {} transactions in window&quot;,</span>
+<span class="nc" id="L101">                    transaction.getAccountId(), recentTransactions.size() + 1);</span>
+        }
+
+        // Update state
+<span class="nc" id="L105">        recentTransactions.add(currentTimestamp);</span>
+<span class="nc" id="L106">        recentTransactionsState.update(recentTransactions);</span>
+<span class="nc" id="L107">        lastTransactionState.update(currentTimestamp);</span>
+
+        // Set timer to clean up old state
+<span class="nc" id="L110">        ctx.timerService().registerEventTimeTimer(currentTimestamp + windowDuration.toMillis() + 1000);</span>
+<span class="nc" id="L111">    }</span>
+
+    @Override
+    public void onTimer(long timestamp, OnTimerContext ctx, Collector&lt;FraudAlert&gt; out) throws Exception {
+        // Clean up old transactions from state
+<span class="nc" id="L116">        List&lt;Long&gt; recentTransactions = recentTransactionsState.value();</span>
+<span class="nc bnc" id="L117" title="All 2 branches missed.">        if (recentTransactions != null) {</span>
+<span class="nc" id="L118">            long windowStart = timestamp - windowDuration.toMillis();</span>
+<span class="nc bnc" id="L119" title="All 2 branches missed.">            recentTransactions.removeIf(ts -&gt; ts &lt; windowStart);</span>
+            
+<span class="nc bnc" id="L121" title="All 2 branches missed.">            if (recentTransactions.isEmpty()) {</span>
+<span class="nc" id="L122">                recentTransactionsState.clear();</span>
+<span class="nc" id="L123">                lastTransactionState.clear();</span>
+            } else {
+<span class="nc" id="L125">                recentTransactionsState.update(recentTransactions);</span>
+            }
+        }
+<span class="nc" id="L128">    }</span>
+
+    private FraudAlert createVelocityBreachAlert(Transaction transaction, int transactionCount) {
+<span class="nc" id="L131">        double riskScore = Math.min(1.0, 0.6 + (transactionCount - maxTransactionsPerWindow) * 0.1);</span>
+        
+<span class="nc" id="L133">        return FraudAlert.builder()</span>
+<span class="nc" id="L134">                .transaction(transaction)</span>
+<span class="nc" id="L135">                .alertType(AlertType.VELOCITY_BREACH)</span>
+<span class="nc" id="L136">                .severity(AlertSeverity.fromRiskScore(riskScore))</span>
+<span class="nc" id="L137">                .riskScore(riskScore)</span>
+<span class="nc" id="L138">                .addTriggeredRule(&quot;VELOCITY_CHECK&quot;)</span>
+<span class="nc" id="L139">                .description(String.format(</span>
+                        &quot;Account %s has %d transactions in %d seconds (max allowed: %d)&quot;,
+<span class="nc" id="L141">                        transaction.getAccountId(),</span>
+<span class="nc" id="L142">                        transactionCount,</span>
+<span class="nc" id="L143">                        windowDuration.getSeconds(),</span>
+<span class="nc" id="L144">                        maxTransactionsPerWindow))</span>
+<span class="nc" id="L145">                .status(AlertStatus.NEW)</span>
+<span class="nc" id="L146">                .build();</span>
+    }
+
+    private FraudAlert createRapidTransactionAlert(Transaction transaction, long timeSinceLastTx) {
+<span class="nc" id="L150">        return FraudAlert.builder()</span>
+<span class="nc" id="L151">                .transaction(transaction)</span>
+<span class="nc" id="L152">                .alertType(AlertType.RAPID_SUCCESSIVE_TRANSACTIONS)</span>
+<span class="nc" id="L153">                .severity(AlertSeverity.HIGH)</span>
+<span class="nc" id="L154">                .riskScore(0.8)</span>
+<span class="nc" id="L155">                .addTriggeredRule(&quot;RAPID_TRANSACTION_CHECK&quot;)</span>
+<span class="nc" id="L156">                .description(String.format(</span>
+                        &quot;Rapid successive transaction detected for account %s - %d ms since last transaction&quot;,
+<span class="nc" id="L158">                        transaction.getAccountId(),</span>
+<span class="nc" id="L159">                        timeSinceLastTx))</span>
+<span class="nc" id="L160">                .status(AlertStatus.NEW)</span>
+<span class="nc" id="L161">                .build();</span>
+    }
+
+    public int getMaxTransactionsPerWindow() {
+<span class="nc" id="L165">        return maxTransactionsPerWindow;</span>
+    }
+
+    public Duration getWindowDuration() {
+<span class="nc" id="L169">        return windowDuration;</span>
+    }
+}
+
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

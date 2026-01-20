@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>FraudRule.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Real-Time Fraud Detection System</a> &gt; <a href="index.source.html" class="el_package">com.hsbc.fraud.rules</a> &gt; <span class="el_source">FraudRule.java</span></div><h1>FraudRule.java</h1><pre class="source lang-java linenums">package com.hsbc.fraud.rules;
+
+import com.hsbc.fraud.model.Transaction;
+
+import java.io.Serializable;
+import java.util.Optional;
+
+/**
+ * Interface for fraud detection rules.
+ * Each rule evaluates a transaction and returns a detection result.
+ */
+public interface FraudRule extends Serializable {
+    
+    /**
+     * Gets the unique name of this rule.
+     * @return the rule name
+     */
+    String getRuleName();
+
+    /**
+     * Gets the description of what this rule detects.
+     * @return the rule description
+     */
+    String getDescription();
+
+    /**
+     * Evaluates a transaction against this rule.
+     * @param transaction the transaction to evaluate
+     * @return Optional containing RuleResult if rule triggered, empty otherwise
+     */
+    Optional&lt;RuleResult&gt; evaluate(Transaction transaction);
+
+    /**
+     * Gets the priority of this rule (higher = more important).
+     * @return the priority value
+     */
+    default int getPriority() {
+<span class="fc" id="L38">        return 0;</span>
+    }
+
+    /**
+     * Checks if this rule is enabled.
+     * @return true if enabled
+     */
+    default boolean isEnabled() {
+<span class="fc" id="L46">        return true;</span>
+    }
+}
+
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

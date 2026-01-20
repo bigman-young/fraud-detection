@@ -1,0 +1,405 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>TransactionProducer.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Real-Time Fraud Detection System</a> &gt; <a href="index.source.html" class="el_package">com.hsbc.fraud.producer</a> &gt; <span class="el_source">TransactionProducer.java</span></div><h1>TransactionProducer.java</h1><pre class="source lang-java linenums">package com.hsbc.fraud.producer;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.hsbc.fraud.model.Transaction;
+import com.hsbc.fraud.model.TransactionType;
+import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.admin.ListTopicsResult;
+import org.apache.kafka.clients.admin.NewTopic;
+import org.apache.kafka.clients.producer.*;
+import org.apache.kafka.common.serialization.StringSerializer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.*;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+
+/**
+ * Standalone Transaction Producer that generates simulated transactions and sends to Kafka.
+ * Can be run independently on the Kafka server or any machine with Kafka connectivity.
+ * 
+ * Usage:
+ *   java -cp fraud-detection-system-1.0.0.jar com.hsbc.fraud.producer.TransactionProducer
+ * 
+ * Environment variables:
+ *   KAFKA_BOOTSTRAP_SERVERS - Kafka broker address (default: 10.113.192.45:9092)
+ *   KAFKA_TOPIC - Target topic (default: transactions)
+ *   TPS - Transactions per second (default: 10)
+ *   FRAUD_RATE - Percentage of fraudulent transactions (default: 15)
+ */
+public class TransactionProducer {
+
+<span class="nc" id="L41">    private static final Logger LOG = LoggerFactory.getLogger(TransactionProducer.class);</span>
+
+    // Configuration with defaults
+    private static final String DEFAULT_BOOTSTRAP_SERVERS = &quot;10.113.192.45:9092&quot;;
+    private static final String DEFAULT_TOPIC = &quot;transactions&quot;;
+    private static final int DEFAULT_TPS = 10;  // transactions per second
+    private static final int DEFAULT_FRAUD_RATE = 15;  // percentage
+
+    // Account pools
+<span class="nc" id="L50">    private static final String[] NORMAL_ACCOUNTS = {</span>
+            &quot;ACC-001&quot;, &quot;ACC-002&quot;, &quot;ACC-003&quot;, &quot;ACC-004&quot;, &quot;ACC-005&quot;,
+            &quot;ACC-006&quot;, &quot;ACC-007&quot;, &quot;ACC-008&quot;, &quot;ACC-009&quot;, &quot;ACC-010&quot;,
+            &quot;ACC-011&quot;, &quot;ACC-012&quot;, &quot;ACC-013&quot;, &quot;ACC-014&quot;, &quot;ACC-015&quot;
+    };
+
+<span class="nc" id="L56">    private static final String[] SUSPICIOUS_ACCOUNTS = {</span>
+            &quot;SUSP-001&quot;, &quot;SUSP-002&quot;, &quot;WATCH-001&quot;
+    };
+
+<span class="nc" id="L60">    private static final String[] BLACKLISTED_ACCOUNTS = {</span>
+            &quot;BLACK-001&quot;, &quot;BLACK-002&quot;, &quot;FRAUD-001&quot;
+    };
+
+<span class="nc" id="L64">    private static final String[] NORMAL_COUNTRIES = {</span>
+            &quot;US&quot;, &quot;UK&quot;, &quot;DE&quot;, &quot;FR&quot;, &quot;JP&quot;, &quot;CA&quot;, &quot;AU&quot;, &quot;SG&quot;, &quot;HK&quot;, &quot;CN&quot;
+    };
+
+<span class="nc" id="L68">    private static final String[] HIGH_RISK_COUNTRIES = {</span>
+            &quot;XX&quot;, &quot;YY&quot;  // Fictional high-risk countries
+    };
+
+<span class="nc" id="L72">    private static final String[] BLOCKED_COUNTRIES = {</span>
+            &quot;ZZ&quot;  // Fictional blocked country
+    };
+
+<span class="nc" id="L76">    private static final String[] CHANNELS = {&quot;ONLINE&quot;, &quot;ATM&quot;, &quot;POS&quot;, &quot;MOBILE&quot;};</span>
+<span class="nc" id="L77">    private static final String[] CURRENCIES = {&quot;USD&quot;, &quot;EUR&quot;, &quot;GBP&quot;, &quot;CNY&quot;, &quot;JPY&quot;};</span>
+<span class="nc" id="L78">    private static final TransactionType[] TX_TYPES = TransactionType.values();</span>
+
+    private final KafkaProducer&lt;String, String&gt; producer;
+    private final ObjectMapper objectMapper;
+    private final String topic;
+    private final int tps;
+    private final int fraudRate;
+    private final Random random;
+    private final AtomicBoolean running;
+    private final AtomicLong totalSent;
+    private final AtomicLong fraudSent;
+
+<span class="nc" id="L90">    public TransactionProducer(String bootstrapServers, String topic, int tps, int fraudRate) {</span>
+<span class="nc" id="L91">        this.topic = topic;</span>
+<span class="nc" id="L92">        this.tps = tps;</span>
+<span class="nc" id="L93">        this.fraudRate = fraudRate;</span>
+<span class="nc" id="L94">        this.random = new Random();</span>
+<span class="nc" id="L95">        this.running = new AtomicBoolean(true);</span>
+<span class="nc" id="L96">        this.totalSent = new AtomicLong(0);</span>
+<span class="nc" id="L97">        this.fraudSent = new AtomicLong(0);</span>
+
+        // Configure Kafka producer
+<span class="nc" id="L100">        Properties props = new Properties();</span>
+<span class="nc" id="L101">        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);</span>
+<span class="nc" id="L102">        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());</span>
+<span class="nc" id="L103">        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());</span>
+<span class="nc" id="L104">        props.put(ProducerConfig.ACKS_CONFIG, &quot;1&quot;);</span>
+<span class="nc" id="L105">        props.put(ProducerConfig.RETRIES_CONFIG, 3);</span>
+<span class="nc" id="L106">        props.put(ProducerConfig.BATCH_SIZE_CONFIG, 16384);</span>
+<span class="nc" id="L107">        props.put(ProducerConfig.LINGER_MS_CONFIG, 5);</span>
+<span class="nc" id="L108">        props.put(ProducerConfig.BUFFER_MEMORY_CONFIG, 33554432);</span>
+        // 减少超时时间以便快速发现连接问题
+<span class="nc" id="L110">        props.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, 10000);  // 10 seconds</span>
+<span class="nc" id="L111">        props.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, 30000); // 30 seconds</span>
+<span class="nc" id="L112">        props.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, 10000);        // 10 seconds</span>
+
+<span class="nc" id="L114">        this.producer = new KafkaProducer&lt;&gt;(props);</span>
+        
+        // 测试连接
+<span class="nc" id="L117">        LOG.info(&quot;Testing Kafka connection to {}...&quot;, bootstrapServers);</span>
+<span class="nc" id="L118">        testConnection(bootstrapServers, topic);</span>
+
+        // Configure JSON serializer
+<span class="nc" id="L121">        this.objectMapper = new ObjectMapper();</span>
+<span class="nc" id="L122">        this.objectMapper.registerModule(new JavaTimeModule());</span>
+<span class="nc" id="L123">        this.objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);</span>
+
+<span class="nc" id="L125">        LOG.info(&quot;TransactionProducer initialized - Kafka: {}, Topic: {}, TPS: {}, FraudRate: {}%&quot;,</span>
+<span class="nc" id="L126">                bootstrapServers, topic, tps, fraudRate);</span>
+<span class="nc" id="L127">    }</span>
+
+    /**
+     * Start producing transactions at the configured rate.
+     */
+    public void start() {
+<span class="nc" id="L133">        LOG.info(&quot;Starting transaction producer...&quot;);</span>
+        
+<span class="nc" id="L135">        long intervalMs = 1000 / tps;  // interval between transactions in ms</span>
+<span class="nc" id="L136">        long lastLogTime = System.currentTimeMillis();</span>
+        
+        // Add shutdown hook
+<span class="nc" id="L139">        Runtime.getRuntime().addShutdownHook(new Thread(() -&gt; {</span>
+<span class="nc" id="L140">            LOG.info(&quot;Shutdown signal received, stopping producer...&quot;);</span>
+<span class="nc" id="L141">            running.set(false);</span>
+<span class="nc" id="L142">        }));</span>
+
+<span class="nc bnc" id="L144" title="All 2 branches missed.">        while (running.get()) {</span>
+            try {
+                // Decide if this should be a fraudulent transaction
+<span class="nc bnc" id="L147" title="All 2 branches missed.">                boolean isFraud = random.nextInt(100) &lt; fraudRate;</span>
+                
+<span class="nc bnc" id="L149" title="All 2 branches missed.">                Transaction transaction = isFraud ? generateFraudulentTransaction() : generateNormalTransaction();</span>
+<span class="nc" id="L150">                String json = objectMapper.writeValueAsString(transaction);</span>
+
+<span class="nc" id="L152">                ProducerRecord&lt;String, String&gt; record = new ProducerRecord&lt;&gt;(</span>
+                        topic, 
+<span class="nc" id="L154">                        transaction.getAccountId(),  // Use account as key for partitioning</span>
+                        json
+                );
+
+<span class="nc" id="L158">                producer.send(record, (metadata, exception) -&gt; {</span>
+<span class="nc bnc" id="L159" title="All 2 branches missed.">                    if (exception != null) {</span>
+<span class="nc" id="L160">                        LOG.error(&quot;Failed to send transaction: {}&quot;, exception.getMessage());</span>
+                    } else {
+<span class="nc" id="L162">                        totalSent.incrementAndGet();</span>
+<span class="nc bnc" id="L163" title="All 2 branches missed.">                        if (isFraud) {</span>
+<span class="nc" id="L164">                            fraudSent.incrementAndGet();</span>
+                        }
+                    }
+<span class="nc" id="L167">                });</span>
+
+                // Log stats every 10 seconds
+<span class="nc" id="L170">                long now = System.currentTimeMillis();</span>
+<span class="nc bnc" id="L171" title="All 2 branches missed.">                if (now - lastLogTime &gt;= 10000) {</span>
+<span class="nc" id="L172">                    LOG.info(&quot;Stats - Total sent: {}, Fraudulent: {} ({}%), Rate: {} tx/s&quot;,</span>
+<span class="nc" id="L173">                            totalSent.get(),</span>
+<span class="nc" id="L174">                            fraudSent.get(),</span>
+<span class="nc bnc" id="L175" title="All 2 branches missed.">                            totalSent.get() &gt; 0 ? (fraudSent.get() * 100 / totalSent.get()) : 0,</span>
+<span class="nc" id="L176">                            tps);</span>
+<span class="nc" id="L177">                    lastLogTime = now;</span>
+                }
+
+                // Sleep to maintain the target TPS
+<span class="nc" id="L181">                Thread.sleep(intervalMs);</span>
+
+<span class="nc" id="L183">            } catch (InterruptedException e) {</span>
+<span class="nc" id="L184">                LOG.info(&quot;Producer interrupted&quot;);</span>
+<span class="nc" id="L185">                running.set(false);</span>
+<span class="nc" id="L186">            } catch (Exception e) {</span>
+<span class="nc" id="L187">                LOG.error(&quot;Error producing transaction: {}&quot;, e.getMessage(), e);</span>
+<span class="nc" id="L188">            }</span>
+        }
+
+<span class="nc" id="L191">        close();</span>
+<span class="nc" id="L192">    }</span>
+
+    /**
+     * Generate a normal (non-fraudulent) transaction.
+     */
+    private Transaction generateNormalTransaction() {
+<span class="nc" id="L198">        String accountId = NORMAL_ACCOUNTS[random.nextInt(NORMAL_ACCOUNTS.length)];</span>
+<span class="nc" id="L199">        String targetAccountId = &quot;ACC-&quot; + String.format(&quot;%03d&quot;, random.nextInt(1000));</span>
+<span class="nc" id="L200">        BigDecimal amount = new BigDecimal(random.nextInt(5000) + 10);  // $10 - $5010</span>
+<span class="nc" id="L201">        String country = NORMAL_COUNTRIES[random.nextInt(NORMAL_COUNTRIES.length)];</span>
+        
+<span class="nc" id="L203">        return buildTransaction(accountId, targetAccountId, amount, country);</span>
+    }
+
+    /**
+     * Generate a fraudulent transaction with various fraud patterns.
+     */
+    private Transaction generateFraudulentTransaction() {
+<span class="nc" id="L210">        int fraudType = random.nextInt(5);</span>
+        
+<span class="nc bnc" id="L212" title="All 6 branches missed.">        switch (fraudType) {</span>
+            case 0:
+                // High-value transaction
+<span class="nc" id="L215">                return generateHighValueTransaction();</span>
+            case 1:
+                // Suspicious account transaction
+<span class="nc" id="L218">                return generateSuspiciousAccountTransaction();</span>
+            case 2:
+                // Blacklisted account transaction
+<span class="nc" id="L221">                return generateBlacklistedAccountTransaction();</span>
+            case 3:
+                // High-risk country transaction
+<span class="nc" id="L224">                return generateHighRiskCountryTransaction();</span>
+            case 4:
+                // Blocked country transaction
+<span class="nc" id="L227">                return generateBlockedCountryTransaction();</span>
+            default:
+<span class="nc" id="L229">                return generateHighValueTransaction();</span>
+        }
+    }
+
+    private Transaction generateHighValueTransaction() {
+<span class="nc" id="L234">        String accountId = NORMAL_ACCOUNTS[random.nextInt(NORMAL_ACCOUNTS.length)];</span>
+<span class="nc" id="L235">        String targetAccountId = &quot;ACC-&quot; + String.format(&quot;%03d&quot;, random.nextInt(1000));</span>
+        // High value: $10,000 - $200,000
+<span class="nc" id="L237">        BigDecimal amount = new BigDecimal(random.nextInt(190000) + 10000);</span>
+<span class="nc" id="L238">        String country = NORMAL_COUNTRIES[random.nextInt(NORMAL_COUNTRIES.length)];</span>
+        
+<span class="nc" id="L240">        Transaction tx = buildTransaction(accountId, targetAccountId, amount, country);</span>
+<span class="nc" id="L241">        LOG.debug(&quot;Generated HIGH VALUE transaction: {} - Amount: {}&quot;, tx.getTransactionId(), amount);</span>
+<span class="nc" id="L242">        return tx;</span>
+    }
+
+    private Transaction generateSuspiciousAccountTransaction() {
+<span class="nc" id="L246">        String accountId = SUSPICIOUS_ACCOUNTS[random.nextInt(SUSPICIOUS_ACCOUNTS.length)];</span>
+<span class="nc" id="L247">        String targetAccountId = &quot;ACC-&quot; + String.format(&quot;%03d&quot;, random.nextInt(1000));</span>
+<span class="nc" id="L248">        BigDecimal amount = new BigDecimal(random.nextInt(10000) + 100);</span>
+<span class="nc" id="L249">        String country = NORMAL_COUNTRIES[random.nextInt(NORMAL_COUNTRIES.length)];</span>
+        
+<span class="nc" id="L251">        Transaction tx = buildTransaction(accountId, targetAccountId, amount, country);</span>
+<span class="nc" id="L252">        LOG.debug(&quot;Generated SUSPICIOUS ACCOUNT transaction: {} - Account: {}&quot;, tx.getTransactionId(), accountId);</span>
+<span class="nc" id="L253">        return tx;</span>
+    }
+
+    private Transaction generateBlacklistedAccountTransaction() {
+<span class="nc" id="L257">        String accountId = BLACKLISTED_ACCOUNTS[random.nextInt(BLACKLISTED_ACCOUNTS.length)];</span>
+<span class="nc" id="L258">        String targetAccountId = &quot;ACC-&quot; + String.format(&quot;%03d&quot;, random.nextInt(1000));</span>
+<span class="nc" id="L259">        BigDecimal amount = new BigDecimal(random.nextInt(50000) + 100);</span>
+<span class="nc" id="L260">        String country = NORMAL_COUNTRIES[random.nextInt(NORMAL_COUNTRIES.length)];</span>
+        
+<span class="nc" id="L262">        Transaction tx = buildTransaction(accountId, targetAccountId, amount, country);</span>
+<span class="nc" id="L263">        LOG.debug(&quot;Generated BLACKLISTED ACCOUNT transaction: {} - Account: {}&quot;, tx.getTransactionId(), accountId);</span>
+<span class="nc" id="L264">        return tx;</span>
+    }
+
+    private Transaction generateHighRiskCountryTransaction() {
+<span class="nc" id="L268">        String accountId = NORMAL_ACCOUNTS[random.nextInt(NORMAL_ACCOUNTS.length)];</span>
+<span class="nc" id="L269">        String targetAccountId = &quot;ACC-&quot; + String.format(&quot;%03d&quot;, random.nextInt(1000));</span>
+<span class="nc" id="L270">        BigDecimal amount = new BigDecimal(random.nextInt(20000) + 500);</span>
+<span class="nc" id="L271">        String country = HIGH_RISK_COUNTRIES[random.nextInt(HIGH_RISK_COUNTRIES.length)];</span>
+        
+<span class="nc" id="L273">        Transaction tx = buildTransaction(accountId, targetAccountId, amount, country);</span>
+<span class="nc" id="L274">        LOG.debug(&quot;Generated HIGH-RISK COUNTRY transaction: {} - Country: {}&quot;, tx.getTransactionId(), country);</span>
+<span class="nc" id="L275">        return tx;</span>
+    }
+
+    private Transaction generateBlockedCountryTransaction() {
+<span class="nc" id="L279">        String accountId = NORMAL_ACCOUNTS[random.nextInt(NORMAL_ACCOUNTS.length)];</span>
+<span class="nc" id="L280">        String targetAccountId = &quot;ACC-&quot; + String.format(&quot;%03d&quot;, random.nextInt(1000));</span>
+<span class="nc" id="L281">        BigDecimal amount = new BigDecimal(random.nextInt(30000) + 1000);</span>
+<span class="nc" id="L282">        String country = BLOCKED_COUNTRIES[random.nextInt(BLOCKED_COUNTRIES.length)];</span>
+        
+<span class="nc" id="L284">        Transaction tx = buildTransaction(accountId, targetAccountId, amount, country);</span>
+<span class="nc" id="L285">        LOG.debug(&quot;Generated BLOCKED COUNTRY transaction: {} - Country: {}&quot;, tx.getTransactionId(), country);</span>
+<span class="nc" id="L286">        return tx;</span>
+    }
+
+    private Transaction buildTransaction(String accountId, String targetAccountId, 
+                                         BigDecimal amount, String countryCode) {
+<span class="nc" id="L291">        return Transaction.builder()</span>
+<span class="nc" id="L292">                .transactionId(&quot;TX-&quot; + UUID.randomUUID().toString().substring(0, 8).toUpperCase())</span>
+<span class="nc" id="L293">                .accountId(accountId)</span>
+<span class="nc" id="L294">                .targetAccountId(targetAccountId)</span>
+<span class="nc" id="L295">                .amount(amount)</span>
+<span class="nc" id="L296">                .currency(CURRENCIES[random.nextInt(CURRENCIES.length)])</span>
+<span class="nc" id="L297">                .transactionType(TX_TYPES[random.nextInt(TX_TYPES.length)])</span>
+<span class="nc" id="L298">                .timestamp(Instant.now())</span>
+<span class="nc" id="L299">                .merchantId(&quot;MERCH-&quot; + String.format(&quot;%04d&quot;, random.nextInt(10000)))</span>
+<span class="nc" id="L300">                .location(&quot;City-&quot; + random.nextInt(100))</span>
+<span class="nc" id="L301">                .countryCode(countryCode)</span>
+<span class="nc" id="L302">                .ipAddress(generateRandomIp())</span>
+<span class="nc" id="L303">                .deviceId(&quot;DEV-&quot; + String.format(&quot;%06d&quot;, random.nextInt(1000000)))</span>
+<span class="nc" id="L304">                .channel(CHANNELS[random.nextInt(CHANNELS.length)])</span>
+<span class="nc" id="L305">                .build();</span>
+    }
+
+    private String generateRandomIp() {
+<span class="nc" id="L309">        return random.nextInt(256) + &quot;.&quot; +</span>
+<span class="nc" id="L310">               random.nextInt(256) + &quot;.&quot; +</span>
+<span class="nc" id="L311">               random.nextInt(256) + &quot;.&quot; +</span>
+<span class="nc" id="L312">               random.nextInt(256);</span>
+    }
+
+    /**
+     * Test connection to Kafka and create topic if needed.
+     */
+    private void testConnection(String bootstrapServers, String topic) {
+<span class="nc" id="L319">        Properties adminProps = new Properties();</span>
+<span class="nc" id="L320">        adminProps.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);</span>
+<span class="nc" id="L321">        adminProps.put(AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, 5000);</span>
+<span class="nc" id="L322">        adminProps.put(AdminClientConfig.DEFAULT_API_TIMEOUT_MS_CONFIG, 10000);</span>
+
+<span class="nc" id="L324">        try (AdminClient adminClient = AdminClient.create(adminProps)) {</span>
+            // 尝试列出主题以测试连接
+<span class="nc" id="L326">            ListTopicsResult topicsResult = adminClient.listTopics();</span>
+<span class="nc" id="L327">            Set&lt;String&gt; topics = topicsResult.names().get(10, TimeUnit.SECONDS);</span>
+            
+<span class="nc" id="L329">            LOG.info(&quot;Successfully connected to Kafka! Found {} topics&quot;, topics.size());</span>
+            
+            // 检查目标主题是否存在
+<span class="nc bnc" id="L332" title="All 2 branches missed.">            if (!topics.contains(topic)) {</span>
+<span class="nc" id="L333">                LOG.warn(&quot;Topic '{}' does not exist. Creating it...&quot;, topic);</span>
+                try {
+<span class="nc" id="L335">                    NewTopic newTopic = new NewTopic(topic, 4, (short) 1);</span>
+<span class="nc" id="L336">                    adminClient.createTopics(Collections.singletonList(newTopic)).all().get(10, TimeUnit.SECONDS);</span>
+<span class="nc" id="L337">                    LOG.info(&quot;Topic '{}' created successfully!&quot;, topic);</span>
+<span class="nc" id="L338">                } catch (Exception e) {</span>
+<span class="nc" id="L339">                    LOG.warn(&quot;Could not create topic (may already exist or auto-create is enabled): {}&quot;, e.getMessage());</span>
+<span class="nc" id="L340">                }</span>
+            } else {
+<span class="nc" id="L342">                LOG.info(&quot;Topic '{}' exists.&quot;, topic);</span>
+            }
+            
+<span class="nc" id="L345">        } catch (TimeoutException e) {</span>
+<span class="nc" id="L346">            LOG.error(&quot;==============================================&quot;);</span>
+<span class="nc" id="L347">            LOG.error(&quot;KAFKA CONNECTION TIMEOUT!&quot;);</span>
+<span class="nc" id="L348">            LOG.error(&quot;Cannot connect to Kafka at: {}&quot;, bootstrapServers);</span>
+<span class="nc" id="L349">            LOG.error(&quot;Please check:&quot;);</span>
+<span class="nc" id="L350">            LOG.error(&quot;  1. Kafka broker is running&quot;);</span>
+<span class="nc" id="L351">            LOG.error(&quot;  2. Network connectivity (try: telnet {} {})&quot;, </span>
+<span class="nc" id="L352">                    bootstrapServers.split(&quot;:&quot;)[0], </span>
+<span class="nc bnc" id="L353" title="All 2 branches missed.">                    bootstrapServers.contains(&quot;:&quot;) ? bootstrapServers.split(&quot;:&quot;)[1] : &quot;9092&quot;);</span>
+<span class="nc" id="L354">            LOG.error(&quot;  3. Firewall settings&quot;);</span>
+<span class="nc" id="L355">            LOG.error(&quot;  4. Kafka advertised.listeners configuration&quot;);</span>
+<span class="nc" id="L356">            LOG.error(&quot;==============================================&quot;);</span>
+<span class="nc" id="L357">            throw new RuntimeException(&quot;Cannot connect to Kafka: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L358">        } catch (ExecutionException | InterruptedException e) {</span>
+<span class="nc" id="L359">            LOG.error(&quot;Failed to connect to Kafka: {}&quot;, e.getMessage());</span>
+<span class="nc" id="L360">            throw new RuntimeException(&quot;Cannot connect to Kafka: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L361">        }</span>
+<span class="nc" id="L362">    }</span>
+
+    public void close() {
+<span class="nc" id="L365">        LOG.info(&quot;Closing producer... Total transactions sent: {}, Fraudulent: {}&quot;,</span>
+<span class="nc" id="L366">                totalSent.get(), fraudSent.get());</span>
+<span class="nc" id="L367">        producer.flush();</span>
+<span class="nc" id="L368">        producer.close();</span>
+<span class="nc" id="L369">    }</span>
+
+    public static void main(String[] args) {
+        // Get configuration from environment variables or command line
+<span class="nc" id="L373">        String bootstrapServers = getConfig(&quot;KAFKA_BOOTSTRAP_SERVERS&quot;, DEFAULT_BOOTSTRAP_SERVERS, args, 0);</span>
+<span class="nc" id="L374">        String topic = getConfig(&quot;KAFKA_TOPIC&quot;, DEFAULT_TOPIC, args, 1);</span>
+<span class="nc" id="L375">        int tps = Integer.parseInt(getConfig(&quot;TPS&quot;, String.valueOf(DEFAULT_TPS), args, 2));</span>
+<span class="nc" id="L376">        int fraudRate = Integer.parseInt(getConfig(&quot;FRAUD_RATE&quot;, String.valueOf(DEFAULT_FRAUD_RATE), args, 3));</span>
+
+<span class="nc" id="L378">        System.out.println(&quot;==============================================&quot;);</span>
+<span class="nc" id="L379">        System.out.println(&quot;       Transaction Producer Starting          &quot;);</span>
+<span class="nc" id="L380">        System.out.println(&quot;==============================================&quot;);</span>
+<span class="nc" id="L381">        System.out.println(&quot;Kafka Brokers: &quot; + bootstrapServers);</span>
+<span class="nc" id="L382">        System.out.println(&quot;Topic: &quot; + topic);</span>
+<span class="nc" id="L383">        System.out.println(&quot;Target TPS: &quot; + tps);</span>
+<span class="nc" id="L384">        System.out.println(&quot;Fraud Rate: &quot; + fraudRate + &quot;%&quot;);</span>
+<span class="nc" id="L385">        System.out.println(&quot;==============================================&quot;);</span>
+<span class="nc" id="L386">        System.out.println(&quot;Press Ctrl+C to stop&quot;);</span>
+<span class="nc" id="L387">        System.out.println();</span>
+
+<span class="nc" id="L389">        TransactionProducer producer = new TransactionProducer(bootstrapServers, topic, tps, fraudRate);</span>
+<span class="nc" id="L390">        producer.start();</span>
+<span class="nc" id="L391">    }</span>
+
+    private static String getConfig(String envName, String defaultValue, String[] args, int argIndex) {
+        // Priority: command line args &gt; environment variable &gt; default
+<span class="nc bnc" id="L395" title="All 8 branches missed.">        if (args != null &amp;&amp; args.length &gt; argIndex &amp;&amp; args[argIndex] != null &amp;&amp; !args[argIndex].isEmpty()) {</span>
+<span class="nc" id="L396">            return args[argIndex];</span>
+        }
+<span class="nc" id="L398">        String envValue = System.getenv(envName);</span>
+<span class="nc bnc" id="L399" title="All 4 branches missed.">        if (envValue != null &amp;&amp; !envValue.isEmpty()) {</span>
+<span class="nc" id="L400">            return envValue;</span>
+        }
+<span class="nc" id="L402">        return defaultValue;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

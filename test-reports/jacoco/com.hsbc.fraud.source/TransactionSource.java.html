@@ -1,0 +1,355 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>TransactionSource.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Real-Time Fraud Detection System</a> &gt; <a href="index.source.html" class="el_package">com.hsbc.fraud.source</a> &gt; <span class="el_source">TransactionSource.java</span></div><h1>TransactionSource.java</h1><pre class="source lang-java linenums">package com.hsbc.fraud.source;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.google.cloud.pubsub.v1.AckReplyConsumer;
+import com.google.cloud.pubsub.v1.MessageReceiver;
+import com.google.cloud.pubsub.v1.Subscriber;
+import com.google.pubsub.v1.ProjectSubscriptionName;
+import com.google.pubsub.v1.PubsubMessage;
+import com.hsbc.fraud.model.Transaction;
+import com.hsbc.fraud.model.TransactionType;
+import org.apache.flink.api.common.eventtime.WatermarkStrategy;
+import org.apache.flink.api.common.serialization.AbstractDeserializationSchema;
+import org.apache.flink.connector.kafka.source.KafkaSource;
+import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
+import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.functions.source.RichSourceFunction;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Random;
+import java.util.UUID;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+
+/**
+ * Transaction data sources for the fraud detection system.
+ * Provides Pub/Sub, Kafka, and demo (simulated) data sources.
+ */
+<span class="nc" id="L36">public class TransactionSource {</span>
+
+<span class="nc" id="L38">    private static final Logger LOG = LoggerFactory.getLogger(TransactionSource.class);</span>
+
+    /**
+     * Supported source types for the fraud detection system.
+     */
+<span class="nc" id="L43">    public enum SourceType {</span>
+<span class="nc" id="L44">        PUBSUB,  // Google Cloud Pub/Sub (default)</span>
+<span class="nc" id="L45">        KAFKA,   // Apache Kafka</span>
+<span class="nc" id="L46">        DEMO     // Simulated data for testing</span>
+    }
+
+    /**
+     * Creates a Pub/Sub source for transactions.
+     *
+     * @param env           Flink execution environment
+     * @param projectId     GCP project ID
+     * @param subscriptionId Pub/Sub subscription ID
+     * @return DataStream of transactions
+     */
+    public static DataStream&lt;Transaction&gt; createPubSubSource(
+            StreamExecutionEnvironment env,
+            String projectId,
+            String subscriptionId) {
+
+<span class="nc" id="L62">        LOG.info(&quot;Creating Pub/Sub source - Project: {}, Subscription: {}&quot;, projectId, subscriptionId);</span>
+
+<span class="nc" id="L64">        DataStream&lt;Transaction&gt; transactions = env</span>
+<span class="nc" id="L65">                .addSource(new PubSubTransactionSource(projectId, subscriptionId))</span>
+<span class="nc" id="L66">                .name(&quot;Pub/Sub Transaction Source&quot;);</span>
+
+        // Add watermarks for event time processing
+<span class="nc" id="L69">        return transactions</span>
+<span class="nc" id="L70">                .assignTimestampsAndWatermarks(</span>
+<span class="nc" id="L71">                        WatermarkStrategy.&lt;Transaction&gt;forBoundedOutOfOrderness(Duration.ofSeconds(5))</span>
+<span class="nc" id="L72">                                .withTimestampAssigner((tx, timestamp) -&gt;</span>
+<span class="nc bnc" id="L73" title="All 2 branches missed.">                                        tx.getTimestamp() != null ? tx.getTimestamp().toEpochMilli() : System.currentTimeMillis())</span>
+                );
+    }
+
+    /**
+     * Creates a Kafka source for transactions.
+     */
+    public static DataStream&lt;Transaction&gt; createKafkaSource(
+            StreamExecutionEnvironment env,
+            String bootstrapServers,
+            String topic) {
+
+<span class="nc" id="L85">        KafkaSource&lt;Transaction&gt; kafkaSource = KafkaSource.&lt;Transaction&gt;builder()</span>
+<span class="nc" id="L86">                .setBootstrapServers(bootstrapServers)</span>
+<span class="nc" id="L87">                .setTopics(topic)</span>
+<span class="nc" id="L88">                .setGroupId(&quot;fraud-detection-group&quot;)</span>
+<span class="nc" id="L89">                .setStartingOffsets(OffsetsInitializer.latest())</span>
+<span class="nc" id="L90">                .setValueOnlyDeserializer(new TransactionDeserializer())</span>
+<span class="nc" id="L91">                .build();</span>
+
+<span class="nc" id="L93">        return env.fromSource(</span>
+                kafkaSource,
+<span class="nc" id="L95">                WatermarkStrategy.&lt;Transaction&gt;forBoundedOutOfOrderness(Duration.ofSeconds(5))</span>
+<span class="nc" id="L96">                        .withTimestampAssigner((tx, timestamp) -&gt; </span>
+<span class="nc bnc" id="L97" title="All 2 branches missed.">                                tx.getTimestamp() != null ? tx.getTimestamp().toEpochMilli() : System.currentTimeMillis()),</span>
+                &quot;Kafka Transaction Source&quot;
+        );
+    }
+
+    /**
+     * JSON deserializer for Transaction objects.
+     */
+<span class="nc" id="L105">    public static class TransactionDeserializer extends AbstractDeserializationSchema&lt;Transaction&gt; {</span>
+
+        private static final long serialVersionUID = 1L;
+        private transient ObjectMapper objectMapper;
+
+        @Override
+        public void open(InitializationContext context) throws Exception {
+<span class="nc" id="L112">            super.open(context);</span>
+<span class="nc" id="L113">            objectMapper = new ObjectMapper();</span>
+<span class="nc" id="L114">            objectMapper.registerModule(new JavaTimeModule());</span>
+<span class="nc" id="L115">        }</span>
+
+        @Override
+        public Transaction deserialize(byte[] message) {
+            try {
+<span class="nc bnc" id="L120" title="All 2 branches missed.">                if (objectMapper == null) {</span>
+<span class="nc" id="L121">                    objectMapper = new ObjectMapper();</span>
+<span class="nc" id="L122">                    objectMapper.registerModule(new JavaTimeModule());</span>
+                }
+<span class="nc" id="L124">                return objectMapper.readValue(message, Transaction.class);</span>
+<span class="nc" id="L125">            } catch (Exception e) {</span>
+<span class="nc" id="L126">                LOG.error(&quot;Failed to deserialize transaction: {}&quot;, new String(message), e);</span>
+<span class="nc" id="L127">                return null;</span>
+            }
+        }
+    }
+
+    /**
+     * Demo source that generates simulated transactions for testing.
+     * Generates a mix of normal and suspicious transactions.
+     */
+<span class="nc" id="L136">    public static class DemoTransactionSource extends RichSourceFunction&lt;Transaction&gt; {</span>
+
+        private static final long serialVersionUID = 1L;
+<span class="nc" id="L139">        private volatile boolean running = true;</span>
+        private transient Random random;
+
+<span class="nc" id="L142">        private static final String[] ACCOUNT_IDS = {</span>
+                &quot;ACC-001&quot;, &quot;ACC-002&quot;, &quot;ACC-003&quot;, &quot;ACC-004&quot;, &quot;ACC-005&quot;,
+                &quot;SUSP-001&quot;, &quot;SUSP-002&quot;, &quot;BLACK-001&quot; // Suspicious/blacklisted accounts
+        };
+
+<span class="nc" id="L147">        private static final String[] COUNTRIES = {</span>
+                &quot;US&quot;, &quot;UK&quot;, &quot;DE&quot;, &quot;FR&quot;, &quot;JP&quot;, &quot;XX&quot;, &quot;YY&quot;, &quot;ZZ&quot; // XX, YY are high-risk, ZZ is blocked
+        };
+
+<span class="nc" id="L151">        private static final String[] CHANNELS = {</span>
+                &quot;ONLINE&quot;, &quot;ATM&quot;, &quot;POS&quot;, &quot;MOBILE&quot;
+        };
+
+<span class="nc" id="L155">        private static final TransactionType[] TX_TYPES = TransactionType.values();</span>
+
+        @Override
+        public void open(org.apache.flink.configuration.Configuration parameters) throws Exception {
+<span class="nc" id="L159">            super.open(parameters);</span>
+<span class="nc" id="L160">            random = new Random();</span>
+<span class="nc" id="L161">        }</span>
+
+        @Override
+        public void run(SourceContext&lt;Transaction&gt; ctx) throws Exception {
+<span class="nc" id="L165">            LOG.info(&quot;Starting demo transaction source&quot;);</span>
+            
+<span class="nc" id="L167">            int counter = 0;</span>
+<span class="nc bnc" id="L168" title="All 2 branches missed.">            while (running) {</span>
+<span class="nc" id="L169">                Transaction transaction = generateTransaction(counter++);</span>
+                
+<span class="nc" id="L171">                synchronized (ctx.getCheckpointLock()) {</span>
+<span class="nc" id="L172">                    ctx.collect(transaction);</span>
+<span class="nc" id="L173">                }</span>
+
+                // Generate transactions at varying rates
+<span class="nc" id="L176">                int sleepTime = random.nextInt(1000) + 100; // 100ms to 1.1s</span>
+                
+                // Occasionally generate burst of transactions (simulating fraud pattern)
+<span class="nc bnc" id="L179" title="All 2 branches missed.">                if (random.nextInt(100) &lt; 5) { // 5% chance</span>
+<span class="nc" id="L180">                    sleepTime = random.nextInt(100) + 10; // Rapid transactions</span>
+                }
+
+<span class="nc" id="L183">                Thread.sleep(sleepTime);</span>
+<span class="nc" id="L184">            }</span>
+<span class="nc" id="L185">        }</span>
+
+        private Transaction generateTransaction(int counter) {
+<span class="nc" id="L188">            String accountId = ACCOUNT_IDS[random.nextInt(ACCOUNT_IDS.length)];</span>
+<span class="nc" id="L189">            String targetAccountId = &quot;ACC-&quot; + String.format(&quot;%03d&quot;, random.nextInt(1000));</span>
+            
+            // Generate amounts - occasionally generate high-value transactions
+            BigDecimal amount;
+<span class="nc bnc" id="L193" title="All 2 branches missed.">            if (random.nextInt(100) &lt; 10) { // 10% chance of high-value</span>
+<span class="nc" id="L194">                amount = new BigDecimal(random.nextInt(100000) + 10000);</span>
+<span class="nc bnc" id="L195" title="All 2 branches missed.">            } else if (random.nextInt(100) &lt; 5) { // 5% chance of very high value</span>
+<span class="nc" id="L196">                amount = new BigDecimal(random.nextInt(500000) + 50000);</span>
+            } else {
+<span class="nc" id="L198">                amount = new BigDecimal(random.nextInt(5000) + 10);</span>
+            }
+
+            // Generate timestamp - occasionally generate off-hours transactions
+<span class="nc" id="L202">            Instant timestamp = Instant.now();</span>
+<span class="nc bnc" id="L203" title="All 2 branches missed.">            if (random.nextInt(100) &lt; 10) { // 10% chance of unusual time</span>
+                // Set time to 2-4 AM
+<span class="nc" id="L205">                timestamp = timestamp.minusSeconds(random.nextInt(7200) + 7200);</span>
+            }
+
+<span class="nc" id="L208">            return Transaction.builder()</span>
+<span class="nc" id="L209">                    .transactionId(&quot;TX-&quot; + UUID.randomUUID().toString().substring(0, 8).toUpperCase())</span>
+<span class="nc" id="L210">                    .accountId(accountId)</span>
+<span class="nc" id="L211">                    .targetAccountId(targetAccountId)</span>
+<span class="nc" id="L212">                    .amount(amount)</span>
+<span class="nc" id="L213">                    .currency(&quot;USD&quot;)</span>
+<span class="nc" id="L214">                    .transactionType(TX_TYPES[random.nextInt(TX_TYPES.length)])</span>
+<span class="nc" id="L215">                    .timestamp(timestamp)</span>
+<span class="nc" id="L216">                    .merchantId(&quot;MERCH-&quot; + String.format(&quot;%04d&quot;, random.nextInt(10000)))</span>
+<span class="nc" id="L217">                    .location(&quot;City-&quot; + random.nextInt(100))</span>
+<span class="nc" id="L218">                    .countryCode(COUNTRIES[random.nextInt(COUNTRIES.length)])</span>
+<span class="nc" id="L219">                    .ipAddress(generateIpAddress())</span>
+<span class="nc" id="L220">                    .deviceId(&quot;DEV-&quot; + String.format(&quot;%06d&quot;, random.nextInt(1000000)))</span>
+<span class="nc" id="L221">                    .channel(CHANNELS[random.nextInt(CHANNELS.length)])</span>
+<span class="nc" id="L222">                    .build();</span>
+        }
+
+        private String generateIpAddress() {
+<span class="nc" id="L226">            return random.nextInt(256) + &quot;.&quot; + </span>
+<span class="nc" id="L227">                   random.nextInt(256) + &quot;.&quot; + </span>
+<span class="nc" id="L228">                   random.nextInt(256) + &quot;.&quot; + </span>
+<span class="nc" id="L229">                   random.nextInt(256);</span>
+        }
+
+        @Override
+        public void cancel() {
+<span class="nc" id="L234">            LOG.info(&quot;Stopping demo transaction source&quot;);</span>
+<span class="nc" id="L235">            running = false;</span>
+<span class="nc" id="L236">        }</span>
+    }
+
+    /**
+     * Pub/Sub source that reads transactions from Google Cloud Pub/Sub.
+     * Uses a pull subscription to receive messages.
+     */
+    public static class PubSubTransactionSource extends RichSourceFunction&lt;Transaction&gt; {
+
+        private static final long serialVersionUID = 1L;
+<span class="nc" id="L246">        private static final Logger LOG = LoggerFactory.getLogger(PubSubTransactionSource.class);</span>
+
+        private final String projectId;
+        private final String subscriptionId;
+<span class="nc" id="L250">        private volatile boolean running = true;</span>
+        private transient Subscriber subscriber;
+        private transient BlockingQueue&lt;Transaction&gt; messageQueue;
+        private transient ObjectMapper objectMapper;
+
+<span class="nc" id="L255">        public PubSubTransactionSource(String projectId, String subscriptionId) {</span>
+<span class="nc" id="L256">            this.projectId = projectId;</span>
+<span class="nc" id="L257">            this.subscriptionId = subscriptionId;</span>
+<span class="nc" id="L258">        }</span>
+
+        @Override
+        public void open(org.apache.flink.configuration.Configuration parameters) throws Exception {
+<span class="nc" id="L262">            super.open(parameters);</span>
+            
+<span class="nc" id="L264">            LOG.info(&quot;Opening Pub/Sub source - Project: {}, Subscription: {}&quot;, projectId, subscriptionId);</span>
+            
+            // Initialize object mapper
+<span class="nc" id="L267">            objectMapper = new ObjectMapper();</span>
+<span class="nc" id="L268">            objectMapper.registerModule(new JavaTimeModule());</span>
+
+            // Initialize message queue
+<span class="nc" id="L271">            messageQueue = new LinkedBlockingQueue&lt;&gt;(10000);</span>
+
+            // Create subscription name
+<span class="nc" id="L274">            ProjectSubscriptionName subscriptionName = ProjectSubscriptionName.of(projectId, subscriptionId);</span>
+
+            // Create message receiver
+<span class="nc" id="L277">            MessageReceiver receiver = (PubsubMessage message, AckReplyConsumer consumer) -&gt; {</span>
+                try {
+<span class="nc" id="L279">                    String json = message.getData().toStringUtf8();</span>
+<span class="nc" id="L280">                    Transaction transaction = objectMapper.readValue(json, Transaction.class);</span>
+                    
+<span class="nc bnc" id="L282" title="All 2 branches missed.">                    if (transaction != null) {</span>
+                        // Try to add to queue, if full, drop the oldest
+<span class="nc bnc" id="L284" title="All 2 branches missed.">                        if (!messageQueue.offer(transaction)) {</span>
+<span class="nc" id="L285">                            messageQueue.poll(); // Remove oldest</span>
+<span class="nc" id="L286">                            messageQueue.offer(transaction);</span>
+<span class="nc" id="L287">                            LOG.warn(&quot;Message queue full, dropped oldest message&quot;);</span>
+                        }
+                    }
+                    
+                    // Acknowledge the message
+<span class="nc" id="L292">                    consumer.ack();</span>
+                    
+<span class="nc" id="L294">                } catch (Exception e) {</span>
+<span class="nc" id="L295">                    LOG.error(&quot;Failed to process Pub/Sub message: {}&quot;, e.getMessage(), e);</span>
+                    // Negative acknowledgment - message will be redelivered
+<span class="nc" id="L297">                    consumer.nack();</span>
+<span class="nc" id="L298">                }</span>
+<span class="nc" id="L299">            };</span>
+
+            // Build and start subscriber
+<span class="nc" id="L302">            subscriber = Subscriber.newBuilder(subscriptionName, receiver)</span>
+<span class="nc" id="L303">                    .build();</span>
+            
+<span class="nc" id="L305">            subscriber.startAsync().awaitRunning();</span>
+<span class="nc" id="L306">            LOG.info(&quot;Pub/Sub subscriber started successfully&quot;);</span>
+<span class="nc" id="L307">        }</span>
+
+        @Override
+        public void run(SourceContext&lt;Transaction&gt; ctx) throws Exception {
+<span class="nc" id="L311">            LOG.info(&quot;Starting Pub/Sub transaction source&quot;);</span>
+            
+<span class="nc bnc" id="L313" title="All 2 branches missed.">            while (running) {</span>
+                try {
+                    // Poll from queue with timeout
+<span class="nc" id="L316">                    Transaction transaction = messageQueue.poll(100, TimeUnit.MILLISECONDS);</span>
+                    
+<span class="nc bnc" id="L318" title="All 2 branches missed.">                    if (transaction != null) {</span>
+<span class="nc" id="L319">                        synchronized (ctx.getCheckpointLock()) {</span>
+<span class="nc" id="L320">                            ctx.collect(transaction);</span>
+<span class="nc" id="L321">                        }</span>
+                    }
+                    
+<span class="nc" id="L324">                } catch (InterruptedException e) {</span>
+<span class="nc" id="L325">                    LOG.info(&quot;Pub/Sub source interrupted&quot;);</span>
+<span class="nc" id="L326">                    Thread.currentThread().interrupt();</span>
+<span class="nc" id="L327">                    running = false;</span>
+<span class="nc" id="L328">                }</span>
+            }
+<span class="nc" id="L330">        }</span>
+
+        @Override
+        public void cancel() {
+<span class="nc" id="L334">            LOG.info(&quot;Cancelling Pub/Sub transaction source&quot;);</span>
+<span class="nc" id="L335">            running = false;</span>
+            
+<span class="nc bnc" id="L337" title="All 2 branches missed.">            if (subscriber != null) {</span>
+                try {
+<span class="nc" id="L339">                    subscriber.stopAsync().awaitTerminated(30, TimeUnit.SECONDS);</span>
+<span class="nc" id="L340">                    LOG.info(&quot;Pub/Sub subscriber stopped&quot;);</span>
+<span class="nc" id="L341">                } catch (TimeoutException e) {</span>
+<span class="nc" id="L342">                    LOG.warn(&quot;Timeout while stopping Pub/Sub subscriber&quot;, e);</span>
+<span class="nc" id="L343">                }</span>
+            }
+<span class="nc" id="L345">        }</span>
+
+        @Override
+        public void close() throws Exception {
+<span class="nc" id="L349">            cancel();</span>
+<span class="nc" id="L350">            super.close();</span>
+<span class="nc" id="L351">        }</span>
+    }
+}
+
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>
