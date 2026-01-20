@@ -75,7 +75,11 @@ public class LoggingIntegrationTest {
             } catch (Exception e) {
                 LOG.warn("Could not delete test log: {}", e.getMessage());
             }
-            logging.close();
+            try {
+                logging.close();
+            } catch (Exception e) {
+                LOG.warn("Error closing logging client: {}", e.getMessage());
+            }
         }
     }
 
