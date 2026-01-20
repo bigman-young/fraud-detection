@@ -12,6 +12,9 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -40,13 +43,21 @@ class FraudDetectionProcessorTest {
     @Test
     @DisplayName("Should generate alert for high value transaction")
     void shouldGenerateAlertForHighValueTransaction() throws Exception {
+        // Use a daytime timestamp (10:00 AM UTC) for consistent test results
+        Instant daytimeTimestamp = ZonedDateTime.now(ZoneId.of("UTC"))
+                .withHour(10)
+                .withMinute(0)
+                .withSecond(0)
+                .withNano(0)
+                .toInstant();
+        
         Transaction transaction = Transaction.builder()
                 .transactionId("TX-001")
                 .accountId("ACC-001")
                 .amount(new BigDecimal("50000"))
                 .currency("USD")
                 .transactionType(TransactionType.TRANSFER)
-                .timestamp(Instant.now())
+                .timestamp(daytimeTimestamp)
                 .countryCode("US")
                 .build();
 
@@ -59,13 +70,21 @@ class FraudDetectionProcessorTest {
     @Test
     @DisplayName("Should not generate alert for normal transaction")
     void shouldNotGenerateAlertForNormalTransaction() throws Exception {
+        // Use a daytime timestamp (10:00 AM UTC) to avoid time-based anomaly detection
+        Instant daytimeTimestamp = ZonedDateTime.now(ZoneId.of("UTC"))
+                .withHour(10)
+                .withMinute(0)
+                .withSecond(0)
+                .withNano(0)
+                .toInstant();
+        
         Transaction transaction = Transaction.builder()
                 .transactionId("TX-002")
                 .accountId("ACC-001")
                 .amount(new BigDecimal("100"))
                 .currency("USD")
                 .transactionType(TransactionType.PAYMENT)
-                .timestamp(Instant.now())
+                .timestamp(daytimeTimestamp)
                 .countryCode("US")
                 .build();
 
@@ -85,13 +104,21 @@ class FraudDetectionProcessorTest {
     @Test
     @DisplayName("Should generate alert for suspicious account")
     void shouldGenerateAlertForSuspiciousAccount() throws Exception {
+        // Use a daytime timestamp (10:00 AM UTC) for consistent test results
+        Instant daytimeTimestamp = ZonedDateTime.now(ZoneId.of("UTC"))
+                .withHour(10)
+                .withMinute(0)
+                .withSecond(0)
+                .withNano(0)
+                .toInstant();
+        
         Transaction transaction = Transaction.builder()
                 .transactionId("TX-003")
                 .accountId("BLACK-001")
                 .amount(new BigDecimal("100"))
                 .currency("USD")
                 .transactionType(TransactionType.TRANSFER)
-                .timestamp(Instant.now())
+                .timestamp(daytimeTimestamp)
                 .countryCode("US")
                 .build();
 
@@ -103,13 +130,21 @@ class FraudDetectionProcessorTest {
     @Test
     @DisplayName("Should generate alert for blocked country")
     void shouldGenerateAlertForBlockedCountry() throws Exception {
+        // Use a daytime timestamp (10:00 AM UTC) for consistent test results
+        Instant daytimeTimestamp = ZonedDateTime.now(ZoneId.of("UTC"))
+                .withHour(10)
+                .withMinute(0)
+                .withSecond(0)
+                .withNano(0)
+                .toInstant();
+        
         Transaction transaction = Transaction.builder()
                 .transactionId("TX-004")
                 .accountId("ACC-001")
                 .amount(new BigDecimal("100"))
                 .currency("USD")
                 .transactionType(TransactionType.TRANSFER)
-                .timestamp(Instant.now())
+                .timestamp(daytimeTimestamp)
                 .countryCode("ZZ") // Blocked country
                 .build();
 
@@ -121,6 +156,14 @@ class FraudDetectionProcessorTest {
     @Test
     @DisplayName("Should process multiple transactions")
     void shouldProcessMultipleTransactions() throws Exception {
+        // Use a daytime timestamp (10:00 AM UTC) to avoid time-based anomaly detection
+        Instant daytimeTimestamp = ZonedDateTime.now(ZoneId.of("UTC"))
+                .withHour(10)
+                .withMinute(0)
+                .withSecond(0)
+                .withNano(0)
+                .toInstant();
+        
         // Normal transaction
         processor.flatMap(Transaction.builder()
                 .transactionId("TX-005")
@@ -128,7 +171,7 @@ class FraudDetectionProcessorTest {
                 .amount(new BigDecimal("100"))
                 .currency("USD")
                 .transactionType(TransactionType.PAYMENT)
-                .timestamp(Instant.now())
+                .timestamp(daytimeTimestamp)
                 .countryCode("US")
                 .build(), collector);
 
@@ -139,7 +182,7 @@ class FraudDetectionProcessorTest {
                 .amount(new BigDecimal("50000"))
                 .currency("USD")
                 .transactionType(TransactionType.TRANSFER)
-                .timestamp(Instant.now())
+                .timestamp(daytimeTimestamp)
                 .countryCode("ZZ")
                 .build(), collector);
 
@@ -150,7 +193,7 @@ class FraudDetectionProcessorTest {
                 .amount(new BigDecimal("200"))
                 .currency("EUR")
                 .transactionType(TransactionType.PAYMENT)
-                .timestamp(Instant.now())
+                .timestamp(daytimeTimestamp)
                 .countryCode("DE")
                 .build(), collector);
 
