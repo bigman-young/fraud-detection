@@ -151,7 +151,7 @@ docker-compose up -d
 ```
 
 3. **Access Flink Web UI:**
-   - Open http://localhost:8081 in your browser
+   - Open [Flink Web UI](http://34.81.167.161:8081/#/overview) in your browser
 
 4. **Generate test transactions:**
 ```bash
