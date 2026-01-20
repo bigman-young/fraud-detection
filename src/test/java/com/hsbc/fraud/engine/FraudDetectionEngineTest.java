@@ -9,6 +9,9 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -84,13 +87,21 @@ class FraudDetectionEngineTest {
     @Test
     @DisplayName("Should not generate alert for normal transaction")
     void shouldNotAlertNormalTransaction() {
+        // Use a daytime timestamp (10:00 AM UTC) to avoid time-based anomaly detection
+        // Time-based anomaly rule checks for transactions between 01:00-05:00
+        Instant daytimeTimestamp = ZonedDateTime.now(ZoneId.of("UTC"))
+                .withHour(10)
+                .withMinute(0)
+                .withSecond(0)
+                .withNano(0)
+                .toInstant();
         Transaction transaction = Transaction.builder()
                 .transactionId("TX-004")
                 .accountId("ACC-001")
                 .amount(new BigDecimal("100"))
                 .currency("USD")
                 .transactionType(TransactionType.PAYMENT)
-                .timestamp(Instant.now())
+                .timestamp(daytimeTimestamp)
                 .countryCode("US")
                 .build();
 
