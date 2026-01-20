@@ -243,7 +243,10 @@ jobs:
           
           # Replace placeholders with actual values
           sed -i "s|\${REPO_NAME}|${REPO_NAME}|g" reports/index.html
-
+          
+          # Create .nojekyll file to disable Jekyll processing
+          touch reports/.nojekyll
+          
       - name: Deploy to GitHub Pages
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
         uses: peaceiris/actions-gh-pages@v3
@@ -254,3 +257,5 @@ jobs:
           keep_files: false
           user_name: 'github-actions[bot]'
           user_email: 'github-actions[bot]@users.noreply.github.com'
+          # Disable Jekyll processing
+          jekyll: false
