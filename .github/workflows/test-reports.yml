@@ -1,0 +1,256 @@
+name: Test Reports & Coverage
+
+on:
+  #push:
+  #  branches: [main, master]
+  #pull_request:
+  #  branches: [main, master]
+  workflow_dispatch:
+
+env:
+  JAVA_VERSION: '17'
+
+jobs:
+  test-and-coverage:
+    name: Run Tests & Generate Reports
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Run unit tests with coverage
+        run: |
+          mvn clean test jacoco:report surefire-report:report-only
+
+      - name: Generate test summary
+        if: always()
+        run: |
+          echo "## 📊 Test Results Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Unit Tests" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          if [ -d "target/surefire-reports" ]; then
+            grep -h "Tests run:" target/surefire-reports/*.txt 2>/dev/null | head -20 >> $GITHUB_STEP_SUMMARY || echo "No test reports found" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "No test reports found" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Extract coverage summary if available
+          if [ -f "target/site/jacoco/jacoco.xml" ]; then
+            echo "### 📈 Code Coverage" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "Coverage report generated successfully" >> $GITHUB_STEP_SUMMARY
+            echo "Location: target/site/jacoco/index.html" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload test reports as artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-${{ github.run_number }}
+          path: |
+            target/surefire-reports/
+            target/site/surefire-report.html
+          retention-days: 30
+
+      - name: Upload coverage reports as artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports-${{ github.run_number }}
+          path: |
+            target/site/jacoco/
+          retention-days: 30
+
+      - name: Prepare reports for GitHub Pages
+        if: always()
+        env:
+          REPO_NAME: ${{ github.repository }}
+          REPO_OWNER: ${{ github.repository_owner }}
+        run: |
+          mkdir -p reports
+          
+          # Copy test reports
+          if [ -f "target/site/surefire-report.html" ]; then
+            cp target/site/surefire-report.html reports/surefire-report.html
+          fi
+          
+          # Copy coverage reports
+          if [ -d "target/site/jacoco" ]; then
+            cp -r target/site/jacoco reports/
+          fi
+          
+          # Create index page with repository info
+          cat > reports/index.html << 'INDEXEOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>Test Reports & Coverage - Fraud Detection System</title>
+              <style>
+                  * { margin: 0; padding: 0; box-sizing: border-box; }
+                  body { 
+                      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                      line-height: 1.6;
+                      color: #333;
+                      background: #f5f5f5;
+                      padding: 20px;
+                  }
+                  .container {
+                      max-width: 1200px;
+                      margin: 0 auto;
+                      background: white;
+                      padding: 40px;
+                      border-radius: 8px;
+                      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                  }
+                  h1 { 
+                      color: #0366d6;
+                      margin-bottom: 10px;
+                      border-bottom: 3px solid #0366d6;
+                      padding-bottom: 10px;
+                  }
+                  h2 {
+                      color: #24292e;
+                      margin-top: 30px;
+                      margin-bottom: 15px;
+                  }
+                  .report-grid {
+                      display: grid;
+                      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                      gap: 20px;
+                      margin-top: 20px;
+                  }
+                  .report-card {
+                      background: #f8f9fa;
+                      border: 1px solid #e1e4e8;
+                      border-radius: 6px;
+                      padding: 20px;
+                      transition: transform 0.2s, box-shadow 0.2s;
+                  }
+                  .report-card:hover {
+                      transform: translateY(-2px);
+                      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                  }
+                  .report-link {
+                      display: block;
+                      text-decoration: none;
+                      color: #0366d6;
+                      font-weight: 500;
+                      font-size: 18px;
+                      margin-bottom: 10px;
+                  }
+                  .report-link:hover {
+                      text-decoration: underline;
+                  }
+                  .report-description {
+                      color: #586069;
+                      font-size: 14px;
+                      margin-top: 8px;
+                  }
+                  .icon {
+                      font-size: 24px;
+                      margin-right: 10px;
+                      vertical-align: middle;
+                  }
+                  .footer {
+                      margin-top: 40px;
+                      padding-top: 20px;
+                      border-top: 1px solid #e1e4e8;
+                      color: #586069;
+                      font-size: 12px;
+                      text-align: center;
+                  }
+                  .badge {
+                      display: inline-block;
+                      padding: 4px 8px;
+                      border-radius: 3px;
+                      font-size: 12px;
+                      font-weight: 600;
+                      margin-left: 10px;
+                  }
+                  .badge-success {
+                      background: #28a745;
+                      color: white;
+                  }
+                  .badge-info {
+                      background: #17a2b8;
+                      color: white;
+                  }
+              </style>
+          </head>
+          <body>
+              <div class="container">
+                  <h1>📊 Test Reports & Coverage</h1>
+                  <p style="color: #586069; margin-bottom: 30px;">
+                      Comprehensive test execution reports and code coverage analysis for the Fraud Detection System.
+                  </p>
+                  
+                  <h2>Available Reports</h2>
+                  <div class="report-grid">
+                      <div class="report-card">
+                          <a href="surefire-report.html" class="report-link">
+                              <span class="icon">📊</span>Test Report (Surefire)
+                          </a>
+                          <div class="report-description">
+                              Detailed test execution results including passed, failed, and skipped tests with execution times.
+                          </div>
+                      </div>
+                      
+                      <div class="report-card">
+                          <a href="jacoco/index.html" class="report-link">
+                              <span class="icon">📈</span>Code Coverage Report (JaCoCo)
+                          </a>
+                          <div class="report-description">
+                              Comprehensive code coverage analysis showing line, branch, method, and class coverage metrics.
+                          </div>
+                      </div>
+                  </div>
+                  
+                  <div class="footer">
+                      <p>Generated by GitHub Actions • Last updated: <span id="timestamp"></span></p>
+                      <p style="margin-top: 10px;">
+                          <a href="https://github.com/${REPO_NAME}" style="color: #0366d6; text-decoration: none;">
+                              View Repository
+                          </a> |
+                          <a href="https://github.com/${REPO_NAME}/actions" style="color: #0366d6; text-decoration: none;">
+                              View Workflows
+                          </a>
+                      </p>
+                  </div>
+              </div>
+              
+              <script>
+                  document.getElementById('timestamp').textContent = new Date().toLocaleString();
+              </script>
+          </body>
+          </html>
+          INDEXEOF
+          
+          # Replace placeholders with actual values
+          sed -i "s|\${REPO_NAME}|${REPO_NAME}|g" reports/index.html
+
+      - name: Deploy to GitHub Pages
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./reports
+          destination_dir: test-reports
+          keep_files: false
+          user_name: 'github-actions[bot]'
+          user_email: 'github-actions[bot]@users.noreply.github.com'
